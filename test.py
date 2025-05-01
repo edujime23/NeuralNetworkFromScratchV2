@@ -2,8 +2,8 @@ from network.types.variable import Variable
 from network.gradientTape import Tape
 import numpy as np
 
-x = Variable([0.5, -1.2, 2.3], (3,), np.float32, True, 'x', 'custom')
-y = Variable([2.0, 3.0, 1.5], (3,), np.float32, False, 'y', 'custom')
+x = Variable([1, 2, 3], (3,), np.float32, True, 'x', 'custom')
+y = Variable([3, 2, 1], (3,), np.float32, False, 'y', 'custom')
 
 with Tape(persistent=True) as tape:
     tape.watch(x)

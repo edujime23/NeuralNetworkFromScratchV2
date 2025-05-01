@@ -43,8 +43,6 @@ class Tape:
             inputs = op['inputs']
             result = op['result']
 
-            print(ufunc.__name__)
-
             if id(result) not in grads:
                 continue
 
@@ -52,37 +50,32 @@ class Tape:
             if hasattr(Tape, ufunc.__name__):
                 grads_list = getattr(Tape, ufunc.__name__)(grad_output, inputs)
                 for inp, g in zip(inputs, grads_list):
-                    # Ensure correct shape for gradients
                     grads[id(inp)] = grads.get(id(inp), 0.0) + g
 
         return [grads.get(id(src), np.zeros_like(src)) for src in sources]
 
-
     @staticmethod
     def ensure_shape(x, shape):
-        x = x if isinstance(x, np.ndarray) else np.array(x)
-        # Handle scalar conversion explicitly
-        if np.shape(x) == ():
-            x = np.broadcast_to(x, shape)
-        elif np.shape(x) != shape:
-            try:
-                x = np.broadcast_to(x, shape)
-            except ValueError:
-                # This case occurs when x and shape are not compatible for broadcasting
-                raise ValueError(f"Cannot broadcast shape {x.shape} to {shape}")
-        return x
+        return np.broadcast_to(x, shape) if np.shape(x) != shape else x
 
     @staticmethod
     def add(grad_output, inputs):
         a, b = inputs
         grad_a = grad_output
         grad_b = grad_output
+        
         if hasattr(a, 'shape') and a.shape == ():
-            grad_a = np.sum(grad_output)  # Scalar handling
+            grad_a = np.sum(grad_output)
         if hasattr(b, 'shape') and b.shape == ():
-            grad_b = np.sum(grad_output)  # Scalar handling
-        return [Tape.ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()),
-                Tape.ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())]
+            grad_b = np.sum(grad_output)
+        
+        if hasattr(a, 'shape'):
+            grad_a = Tape.ensure_shape(grad_a, a.shape)
+        if hasattr(b, 'shape'):
+            grad_b = Tape.ensure_shape(grad_b, b.shape)
+
+        return [grad_a, grad_b]
+
 
 
     @staticmethod
