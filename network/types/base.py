@@ -1,34 +1,42 @@
+# network/types/base.py
+
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Union
+from ..gradientTape import Tape
 
 class BaseType(np.ndarray):
-    def __new__(cls, shape: Tuple[int], dtype: np.typing.DTypeLike, name: str):
+    def __new__(cls, value: Union[np.typing.NDArray, np.number], shape: Tuple[int], dtype: np.typing.DTypeLike, name: str):
         obj = super().__new__(cls, shape, dtype)
         obj.__name = name
-        obj.fill(0)
+        obj[:] = value[:] if value else np.zeros(shape=shape)
         return obj
-    
-    # def __array_wrap__(self, obj, context=None):
-    #     func, args, _ = context
-    #     op_type = func.__name__
 
-    #     recorder: Tape = Tape._active_tape
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        # 1) unwrap inputs to raw numpy arrays
+        raw_inputs = [
+            x.view(np.ndarray) if isinstance(x, BaseType) else x
+            for x in inputs
+        ]
+        # 2) perform the actual numpy operation
+        raw_out = getattr(ufunc, method)(*raw_inputs, **kwargs)
 
-    #     new_tracked_array = BaseType(obj)
+        # 3) wrap back into BaseType if array
+        if isinstance(raw_out, np.ndarray):
+            out = raw_out.view(BaseType)
+        else:
+            # scalar result, nothing to tape
+            return raw_out
 
-    #     # Record the operation if a tape is active
-    #     if recorder:
-    #         # Filter args to include only tracked or representative values
-    #         inputs_for_record = tuple(a if isinstance(a, BaseType) else np.asarray(a) for a in args)
-    #         recorder._record_operation(op_type, inputs_for_record, new_tracked_array)
+        # 4) record the op against the wrapped output
+        if Tape._CURRENT_TAPE is not None:
+            Tape._CURRENT_TAPE.record(ufunc, method, inputs, kwargs, out)
 
-    #     return new_tracked_array
-    
+        return out
+
     @staticmethod
     def _initialize(arr: np.typing.NDArray, shape: Tuple[int], initializer: str):
         match initializer:
             case 'zeros':
-                print("zeros")
                 arr[:] = 0
             case 'ones':
                 arr[:] = 1
@@ -60,7 +68,7 @@ class BaseType(np.ndarray):
             case 'lecun_uniform':
                 limit = np.sqrt(3 / shape[0])
                 arr[:] = np.random.uniform(-limit, limit, shape)
-    
+
     @property
     def name(self):
         return self.__name

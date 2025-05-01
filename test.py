@@ -1,13 +1,31 @@
 from network.types.variable import Variable
+from network.gradientTape import Tape
 import numpy as np
 
-# Correct way to create an instance: Pass arguments matching __new__
-# Notice the order and meaning of arguments
-a = Variable(shape=(1, 1), dtype=np.float16, trainable=True, name="my_variable_a", initializer="random_normal")
-b = Variable(shape=(2, 3), dtype=np.float32, trainable=False, name="another_var")
+x = Variable([0.5, -1.2, 2.3], (3,), np.float32, True, 'x', 'custom')
+y = Variable([2.0, 3.0, 1.5], (3,), np.float32, False, 'y', 'custom')
 
-a.initialize()
-b.initialize()
+with Tape(persistent=True) as tape:
+    tape.watch(x)
 
-print(f"Variable '{a.name}': shape={a.shape}, dtype={a.dtype}, trainable={a.trainable}, value={a}")
-print(f"Variable '{b.name}': shape={b.shape}, dtype={b.dtype}, trainable={b.trainable}, value={b}")
+    # Composite expression using many ufuncs
+    z = (
+        np.sin(x) +
+        np.cos(x * y) +
+        np.tanh(x - y) +
+        np.exp(x) +
+        np.log(np.abs(x) + 1e-5) +
+        np.negative(x) +
+        np.maximum(x, y) +
+        np.minimum(x, y) +
+        np.floor(x) +
+        np.ceil(x) +
+        np.round(x) +
+        np.mod(x, y) +
+        np.remainder(x, y) +
+        np.fmod(x, y) +
+        np.clip(x, -1, 1)
+    )
+
+dz_dx, = tape.gradient(z, [x])
+print("dz/dx:", dz_dx)
