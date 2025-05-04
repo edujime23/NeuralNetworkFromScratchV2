@@ -17,16 +17,11 @@ class UfuncGradients:
         grad_b = grad_output
         
         if hasattr(a, 'shape') and a.shape == ():
-            grad_a = np.sum(grad_output)
+            grad_a = np.sum(grad_a)
         if hasattr(b, 'shape') and b.shape == ():
-            grad_b = np.sum(grad_output)
-        
-        if hasattr(a, 'shape'):
-            grad_a = UfuncGradients.ensure_shape(grad_a, a.shape)
-        if hasattr(b, 'shape'):
-            grad_b = UfuncGradients.ensure_shape(grad_b, b.shape)
+            grad_b = np.sum(grad_b)
 
-        return [grad_a, grad_b]
+        return [UfuncGradients.ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()), UfuncGradients.ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())]
 
     @staticmethod
     def sum(grad_output, inputs, axis=None, keepdims=False):
@@ -58,6 +53,38 @@ class UfuncGradients:
         if hasattr(b, 'shape') and b.shape == ():
             grad_b = np.sum(grad_b)
         return [UfuncGradients.ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()), UfuncGradients.ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())]
+    
+    @staticmethod
+    def matmul(grad_output, inputs):
+        a, b = inputs
+
+        a_val = np.array(a)
+        b_val = np.array(b)
+        grad_out_val = np.array(grad_output)
+
+        if a_val.ndim == 1:
+            a_val = a_val.reshape(1, -1)
+            grad_out_val = grad_out_val.reshape(1, -1)
+            reshape_a = True
+        else:
+            reshape_a = False
+
+        if b_val.ndim == 1:
+            b_val = b_val.reshape(-1, 1)
+            grad_out_val = grad_out_val.reshape(-1, 1)
+            reshape_b = True
+        else:
+            reshape_b = False
+
+        grad_a = np.matmul(grad_out_val, np.swapaxes(b_val, -1, -2))
+        grad_b = np.matmul(np.swapaxes(a_val, -1, -2), grad_out_val)
+
+        if reshape_a:
+            grad_a = grad_a.reshape(-1)
+        if reshape_b:
+            grad_b = grad_b.reshape(-1)
+
+        return [UfuncGradients.ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()), UfuncGradients.ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())]
 
     @staticmethod
     def divide(grad_output, inputs):
@@ -80,7 +107,7 @@ class UfuncGradients:
         base_shape = base.shape if hasattr(base, 'shape') else ()
         exp_shape = exp.shape if hasattr(exp, 'shape') else ()
         grad_base = grad_output * exp_val * np.power(base_val, exp_val - 1)
-        grad_exp = grad_output * np.log(base_val + 1e-10) * np.power(base_val, exp_val)
+        grad_exp = grad_output * np.log(base_val + np.finfo(np.float32).eps) * np.power(base_val, exp_val)
         if exp_shape == ():
             grad_exp = np.sum(grad_exp)
         if base_shape == ():
@@ -113,7 +140,7 @@ class UfuncGradients:
     @staticmethod
     def log(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (inp + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (inp + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def negative(grad_output, inputs):
@@ -190,12 +217,12 @@ class UfuncGradients:
     @staticmethod
     def arcsin(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / np.sqrt(1 - inp**2 + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / np.sqrt(1 - inp**2 + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def arccos(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(-grad_output / np.sqrt(1 - inp**2 + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(-grad_output / np.sqrt(1 - inp**2 + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def arctan(grad_output, inputs):
@@ -205,7 +232,7 @@ class UfuncGradients:
     @staticmethod
     def sqrt(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (2 * np.sqrt(inp + 1e-10)), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (2 * np.sqrt(inp + np.finfo(np.float32).eps)), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def sinh(grad_output, inputs):
@@ -220,12 +247,12 @@ class UfuncGradients:
     @staticmethod
     def tan(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (np.cos(inp)**2 + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (np.cos(inp)**2 + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
     
     @staticmethod
     def log1p(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (inp + 1 + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (inp + 1 + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def expm1(grad_output, inputs):
@@ -235,22 +262,22 @@ class UfuncGradients:
     @staticmethod
     def reciprocal(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(-grad_output / (inp ** 2 + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(-grad_output / (inp ** 2 + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def log2(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (inp * np.log(2) + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (inp * np.log(2) + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def log10(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (inp * np.log(10) + 1e-10), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (inp * np.log(10) + np.finfo(np.float32).eps), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def arctan2(grad_output, inputs):
         y, x = inputs
-        denom = x ** 2 + y ** 2 + 1e-10
+        denom = x ** 2 + y ** 2 + np.finfo(np.float32).eps
         grad_y = grad_output * x / denom
         grad_x = -grad_output * y / denom
         return [UfuncGradients.ensure_shape(grad_y, y.shape if hasattr(y, 'shape') else ()),
@@ -259,7 +286,7 @@ class UfuncGradients:
     @staticmethod
     def hypot(grad_output, inputs):
         x, y = inputs
-        denom = np.sqrt(x ** 2 + y ** 2 + 1e-10)
+        denom = np.sqrt(x ** 2 + y ** 2 + np.finfo(np.float32).eps)
         grad_x = grad_output * x / denom
         grad_y = grad_output * y / denom
         return [UfuncGradients.ensure_shape(grad_x, x.shape if hasattr(x, 'shape') else ()),
@@ -280,7 +307,7 @@ class UfuncGradients:
     def prod(grad_output, inputs, axis=None, keepdims=False):
         inp = inputs[0]
         prod_val = np.prod(inp, axis=axis, keepdims=True)
-        grad = grad_output * prod_val / (inp + 1e-10)
+        grad = grad_output * prod_val / (inp + np.finfo(np.float32).eps)
         return [UfuncGradients.ensure_shape(grad, inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
@@ -320,7 +347,7 @@ class UfuncGradients:
     def logaddexp(grad_output, inputs):
         a, b = inputs
         exp_a, exp_b = np.exp(a), np.exp(b)
-        denom = exp_a + exp_b + 1e-10
+        denom = exp_a + exp_b + np.finfo(np.float32).eps
         return [UfuncGradients.ensure_shape(grad_output * exp_a / denom, a.shape if hasattr(a, 'shape') else ()),
                 UfuncGradients.ensure_shape(grad_output * exp_b / denom, b.shape if hasattr(b, 'shape') else ())]
 
@@ -328,14 +355,14 @@ class UfuncGradients:
     def logaddexp2(grad_output, inputs):
         a, b = inputs
         exp2_a, exp2_b = 2**a, 2**b
-        denom = exp2_a + exp2_b + 1e-10
+        denom = exp2_a + exp2_b + np.finfo(np.float32).eps
         return [UfuncGradients.ensure_shape(grad_output * exp2_a / denom * np.log(2), a.shape if hasattr(a, 'shape') else ()),
                 UfuncGradients.ensure_shape(grad_output * exp2_b / denom * np.log(2), b.shape if hasattr(b, 'shape') else ())]
 
     @staticmethod
     def cbrt(grad_output, inputs):
         inp = inputs[0]
-        return [UfuncGradients.ensure_shape(grad_output / (3 * np.cbrt(inp ** 2 + 1e-10)), inp.shape if hasattr(inp, 'shape') else ())]
+        return [UfuncGradients.ensure_shape(grad_output / (3 * np.cbrt(inp ** 2 + np.finfo(np.float32).eps)), inp.shape if hasattr(inp, 'shape') else ())]
 
     @staticmethod
     def deg2rad(grad_output, inputs):
@@ -354,4 +381,3 @@ class UfuncGradients:
     def sign(grad_output, inputs):
         warnings.warn("Gradient of sign is zero almost everywhere and undefined at zero.")
         return [np.zeros_like(inputs[0])]
-

@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Tuple, Union
-import warnings
+from ..util import function
 from ..gradient_tape.gradient_tape import GradientTape
 
 class BaseType(np.ndarray):
@@ -10,7 +10,9 @@ class BaseType(np.ndarray):
         obj = np.asarray(base_array).view(cls)
         obj.__name = name
 
-        if np.isscalar(value):
+        if not value:
+            pass
+        elif np.isscalar(value):
             obj.fill(value)
         else:
             value_array = np.copy(value).astype(dtype)
@@ -21,6 +23,8 @@ class BaseType(np.ndarray):
         return obj
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        if getattr(ufunc, 'flags', {}).get("supress_tape_recording", False):
+            return ufunc(*args, **kwargs)
         out = kwargs.pop('out', None)
 
         raw_inputs = [i.view(np.ndarray) if isinstance(i, BaseType) else i for i in inputs]
@@ -35,65 +39,35 @@ class BaseType(np.ndarray):
         raw_result = getattr(ufunc, method)(*raw_inputs, **raw_kwargs)
 
         result = self if out else raw_result.view(BaseType)
-        if GradientTape._CURRENT_GRADIENT_TAPE is not None and (out is not None or any(id(i) in GradientTape._CURRENT_GRADIENT_TAPE.watched for i in inputs)):
-            GradientTape._CURRENT_GRADIENT_TAPE.record(ufunc, method, inputs, kwargs, result)
+        for tape in GradientTape._GRADIENTS_TAPES:
+            tape.record(ufunc, method, inputs, kwargs, result)
 
         return result
 
-    def __array_function__(self, func, types, args, kwargs):
-        raw_args = tuple(x.view(np.ndarray) if isinstance(x, BaseType) else x for x in args)
-        raw_out = func(*raw_args, **kwargs)
+    def __array_function__(self, func, types, inputs, kwargs):
+        if getattr(func, 'flags', {}).get("supress_tape_recording", False):
+            return func(*inputs, **kwargs)
+
+        raw_inputs = tuple(x.view(np.ndarray) if isinstance(x, BaseType) else x for x in inputs)
+        raw_out = func(*raw_inputs, **kwargs)
         if isinstance(raw_out, np.ndarray):
             out = raw_out.view(BaseType)
-            if GradientTape._CURRENT_GRADIENT_TAPE is not None:
-                GradientTape._CURRENT_GRADIENT_TAPE.record(func, '__call__', args, kwargs, out)
+            for tape in GradientTape._GRADIENTS_TAPES:
+                tape.record(func, '__call__', inputs, kwargs, out)
             return out
         else:
-            if GradientTape._CURRENT_GRADIENT_TAPE is not None:
-                GradientTape._CURRENT_GRADIENT_TAPE.record(func, '__call__', args, kwargs, raw_out)
+            for tape in GradientTape._GRADIENTS_TAPES:
+                tape.record(func, '__call__', inputs, kwargs, raw_out)
             return raw_out
-
-    # in-place addition
-    def __iadd__(self, other):
-        original_value = np.copy(self)
-
-        result = np.add(self, other)
-
-        if GradientTape._CURRENT_GRADIENT_TAPE is not None:
-            GradientTape._CURRENT_GRADIENT_TAPE.record(np.add, '__call__', [original_value, other], {}, result)
-
-        return result
-
-    # in-place subtraction
-    def __isub__(self, other):
-        original_value = np.copy(self)
-
-        result = np.subtract(self, other)
-
-        if GradientTape._CURRENT_GRADIENT_TAPE is not None:
-            GradientTape._CURRENT_GRADIENT_TAPE.record(np.subtract, '__call__', [original_value, other], {}, result)
-
-        return result
-    
-    def __itruediv__(self, other):
-        original_value = np.copy(self)
-
-        result = np.true_divide(self, other)
-
-        if GradientTape._CURRENT_GRADIENT_TAPE is not None:
-            GradientTape._CURRENT_GRADIENT_TAPE.record(np.true_divide, '__call__', [original_value, other], {}, result)
-
-        return result
-
-    def __imul__(self, other):
-        original_value = np.copy(self)
-
-        result = np.multiply(self, other)
-
-        if GradientTape._CURRENT_GRADIENT_TAPE is not None:
-            GradientTape._CURRENT_GRADIENT_TAPE.record(np.multiply, '__call__', [original_value, other], {}, result)
-
-        return result
+        
+    @staticmethod
+    def _inplace_operation(func, self, other): return func(self, other)
+    def __iadd__(self, other): return self._inplace_operation(np.add, self, other)
+    def __isub__(self, other): return self._inplace_operation(np.subtract, self, other)
+    def __itruediv__(self, other): return self._inplace_operation(np.true_divide, self, other)
+    def __imul__(self, other): return self._inplace_operation(np.multiply, self, other)
+    def __imatmul__(self, other): return self._inplace_operation(np.matmul, self, other)
+    def __ipow__(self, other): return self._inplace_operation(np.pow, self, other)
 
     @staticmethod
     def _initialize(arr: np.typing.NDArray, shape: Tuple[int], initializer: str):
@@ -121,9 +95,5 @@ class BaseType(np.ndarray):
 
     @property
     def name(self): return self.__name
-    
-    def __hash__(self):
-        return id(self)
-
-    def __eq__(self, other):
-        return self is other
+    def __hash__(self): return id(self)
+    def __eq__(self, other): return self is other
