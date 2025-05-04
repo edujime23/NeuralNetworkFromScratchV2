@@ -24,7 +24,7 @@ class BaseType(np.ndarray):
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         if getattr(ufunc, 'flags', {}).get("supress_tape_recording", False):
-            return ufunc(*args, **kwargs)
+            return ufunc(*inputs, **kwargs)
         out = kwargs.pop('out', None)
 
         raw_inputs = [i.view(np.ndarray) if isinstance(i, BaseType) else i for i in inputs]
