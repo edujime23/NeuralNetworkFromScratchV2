@@ -1,5 +1,6 @@
 import numpy as np
 import warnings
+
 class UfuncGradients:
     @staticmethod
     def ensure_shape(x, shape):
