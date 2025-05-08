@@ -1,5 +1,5 @@
 import numpy as np
-from .func_gradients import UfuncGradients
+from .func_gradients import FuncGradients
 from typing import List, Self, Callable, Tuple, Dict, overload, Iterable, Optional
 
 class GradientTape:
@@ -67,7 +67,7 @@ class GradientTape:
     @overload
     def gradient(self, target: np.typing.ArrayLike, sources: np.typing.ArrayLike) -> np.typing.ArrayLike: ...
     def gradient(self, target, sources):
-        if isinstance(target, np.ndarray):
+        if isinstance(target, (np.ndarray, np.number)):
             if isinstance(sources, dict):
                 return {key: self.gradient(target, val)
                         for key, val in sources.items()}
@@ -95,22 +95,27 @@ class GradientTape:
             func = op['func']
             inputs = op['inputs']
             result = op['result']
+            kwargs = op['kwargs']
 
             if id(result) not in grads:
                 continue
 
             grad_output = grads[id(result)]
-            if hasattr(UfuncGradients, func.__name__):
-                dfunc = getattr(UfuncGradients, func.__name__)
-                grads_list = dfunc(grad_output, inputs)
+            if hasattr(FuncGradients, func.__name__):
+                dfunc = getattr(FuncGradients, func.__name__)
+                try:
+                    grads_list = dfunc(grad_output, inputs, **kwargs)
+                except TypeError: 
+                    dfunc(grad_output, inputs)
+                    
                 for inp, g in zip(inputs, grads_list):
                     grads[id(inp)] = grads.get(id(inp), 0.0) + g
                     
         return grads.get(id(source))
     
-    def reset(self) -> None:
+    def reset(self, watched: bool = True) -> None:
         self.operations.clear()
-        self.watched.clear()
+        self.watched.clear() if watched else None
     
     def __dell__(self):
         GradientTape._GRADIENTS_TAPES.remove(self)

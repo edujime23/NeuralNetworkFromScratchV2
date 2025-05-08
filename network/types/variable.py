@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Tuple, Union, Callable
+from typing import Tuple, Union, Callable, Optional
 from .base import BaseType
 
 class Variable(BaseType):
@@ -10,7 +10,7 @@ class Variable(BaseType):
         dtype: np.typing.DTypeLike,
         trainable: bool,
         name: str,
-        initializer: Union[str, Callable] = 'zeros'
+        initializer: Optional[Union[str, Callable]] = None
     ):
         obj = super().__new__(cls, value, shape, dtype, name)
         obj.__trainable = trainable
@@ -18,7 +18,9 @@ class Variable(BaseType):
         return obj
 
     def initialize(self):
-        if callable(self.__initializer):
+        if self.__initializer is None:
+            pass
+        elif callable(self.__initializer):
             self.__initializer(self)
         else:
             self._initialize(self.view(np.ndarray), self.shape, self.__initializer)
