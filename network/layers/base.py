@@ -2,15 +2,15 @@ from typing import Optional, Tuple, Any, List
 import numpy as np
 
 class Layer:
-    def __init__(self, name: Optional[str] = None, trainable: bool = True, dtype: Optional[np.dtype] = np.float32):
+    def __init__(self, name: Optional[str] = None, trainable: bool = True, dtype: Optional[np.typing.DTypeLike] = np.float32):
         self.name = name or self.__class__.__name__
         self.trainable = trainable
         self.dtype = dtype
         self._built = False
-        self._trainable_weights: List[np.ndarray] = []
-        self._non_trainable_weights: List[np.ndarray] = []
-        self._trainable_variables: List[np.ndarray] = []
-        self._non_trainable_variables: List[np.ndarray] = []
+        self._trainable_weights: List[np.typing.NDArray[Any]] = []
+        self._non_trainable_weights: List[np.typing.NDArray[Any]] = []
+        self._trainable_variables: List[np.typing.NDArray[Any]] = []
+        self._non_trainable_variables: List[np.typing.NDArray[Any]] = []
 
     def build(self, input_shape: Tuple[int, ...]):
         """
@@ -19,19 +19,19 @@ class Layer:
         """
         self._built = True
 
-    def call(self, inputs: np.ndarray, training: bool = False, mask: Optional[np.ndarray] = None) -> np.ndarray:
+    def call(self, inputs: np.typing.NDArray[Any], training: bool = False, mask: Optional[np.typing.NDArray[Any]] = None) -> np.typing.NDArray[Any]:
         """
         Defines the computation from inputs to outputs.
         Should be overridden by all subclasses.
         """
         raise NotImplementedError("The call method must be implemented by subclasses.")
 
-    def __call__(self, inputs: np.ndarray, training: bool = False, mask: Optional[np.ndarray] = None) -> np.ndarray:
+    def __call__(self, inputs: np.typing.NDArray[Any], training: bool = False, mask: Optional[np.typing.NDArray[Any]] = None) -> np.typing.NDArray[Any]:
         if not self._built:
             self.build(inputs.shape)
         return self.call(inputs, training=training, mask=mask)
 
-    def add_weight(self, name: str, shape: Tuple[int, ...], initializer: Optional[callable] = None, trainable: bool = True) -> np.ndarray:
+    def add_weight(self, name: str, shape: Tuple[int, ...], initializer: Optional[callable] = None, trainable: bool = True) -> np.typing.NDArray[Any]:
         """
         Creates a weight variable for the layer.
         """
@@ -53,13 +53,13 @@ class Layer:
         """
         return input_shape
 
-    def get_weights(self) -> List[np.ndarray]:
+    def get_weights(self) -> List[np.typing.NDArray[Any]]:
         """
         Returns the weights of the layer as a list of NumPy arrays.
         """
         return self._trainable_weights + self._non_trainable_weights
 
-    def set_weights(self, weights: List[np.ndarray]):
+    def set_weights(self, weights: List[np.typing.NDArray[Any]]):
         """
         Sets the weights of the layer from a list of NumPy arrays.
         """
@@ -75,21 +75,18 @@ class Layer:
         """
         Returns the total number of parameters (trainable and non-trainable) in the layer.
         """
-        total_params = 0
-        for weight in self.get_weights():
-            total_params += np.prod(weight.shape)
-        return total_params
+        return sum(np.prod(weight.shape) for weight in self.get_weights())
 
     @property
-    def trainable_variables(self) -> List[np.ndarray]:
+    def trainable_variables(self) -> List[np.typing.NDArray[Any]]:
         return self._trainable_variables
 
     @property
-    def non_trainable_variables(self) -> List[np.ndarray]:
+    def non_trainable_variables(self) -> List[np.typing.NDArray[Any]]:
         return self._non_trainable_variables
 
     @property
-    def variables(self) -> List[np.ndarray]:
+    def variables(self) -> List[np.typing.NDArray[Any]]:
         return self._trainable_variables + self._non_trainable_variables
 
     @property

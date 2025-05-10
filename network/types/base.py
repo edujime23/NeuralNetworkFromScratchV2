@@ -1,23 +1,26 @@
 import numpy as np
-from typing import Tuple, Union, Callable, Dict, Any
+from typing import Tuple, Union, Callable, Dict, Optional
 from ..gradient_tape.gradient_tape import GradientTape
 
 class BaseType(np.ndarray):
     __name = None
-    def __new__(cls, value: Union[np.typing.NDArray, np.number], shape: Tuple[int], dtype: np.typing.DTypeLike, name: str):
-        base_array = np.zeros(shape=shape, dtype=dtype)
-        obj = np.asarray(base_array).view(cls)
-        obj.__name = name
-
-        if not value:
-            pass
-        elif np.isscalar(value):
+    def __new__(cls, value: Optional[Union[np.typing.NDArray, np.number]], shape: Optional[Tuple[int]] = None, dtype: Optional[np.typing.DTypeLike] = None, name: Optional[str] = None):
+        if not shape:
+            shape = value.shape if value is not None else ()
+        if not dtype:
+            dtype = value.dtype if value is not None else np.float32
+            
+        obj = np.asarray(np.zeros(shape, dtype)).view(cls)
+            
+        if np.isscalar(value):
             obj.fill(value)
         else:
-            value_array = np.copy(value).astype(dtype)
+            value_array = np.asarray(value).astype(dtype)
             if value_array.shape != shape:
                 raise ValueError(f"Value shape {value_array.shape} does not match expected shape {shape}")
             obj[...] = value_array
+            
+        obj.__name = name
 
         return obj
 
@@ -28,14 +31,16 @@ class BaseType(np.ndarray):
         return self.__record(func, '__call__', inputs, kwargs)
         
     def __record(self, func: Callable[[np.typing.ArrayLike, np.typing.ArrayLike], np.typing.ArrayLike], method: str, inputs: Tuple[np.typing.ArrayLike], kwargs: Dict[str, np.typing.ArrayLike]) -> np.typing.ArrayLike:
-        raw_inputs = [i.view(np.ndarray) if isinstance(i, BaseType) else i for i in inputs]
+        raw_inputs = [i.view(np.ndarray) if issubclass(type(i), BaseType) else i for i in inputs]
         raw_kwargs = {
-            k: v.view(np.ndarray) if isinstance(v, BaseType) else v
+            k: v.view(np.ndarray) if issubclass(type(v), BaseType) else v
             for k, v in kwargs.items()
         }
         raw_result = getattr(func, method)(*raw_inputs, **raw_kwargs)
-        if isinstance(raw_result, np.ndarray):
+        if issubclass(type(raw_result), np.ndarray):
             result = raw_result.view(BaseType)
+        elif issubclass(type(raw_result), np.number):
+            result = np.asarray(raw_result).view(BaseType)
         else: result = raw_result
 
         if tapes := GradientTape._GRADIENTS_TAPES:

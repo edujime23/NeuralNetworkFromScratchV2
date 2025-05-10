@@ -5,11 +5,11 @@ from .base import BaseType
 class Variable(BaseType):
     def __new__(
         cls,
-        value: np.typing.ArrayLike,
-        shape: Tuple[int],
-        dtype: np.typing.DTypeLike,
-        trainable: bool,
-        name: str,
+        value: Optional[np.typing.ArrayLike] = None,
+        shape: Optional[Tuple[int]] = None,
+        dtype: Optional[np.typing.DTypeLike] = None,
+        trainable: Optional[bool] = True,
+        name: Optional[str] = None,
         initializer: Optional[Union[str, Callable]] = None
     ):
         obj = super().__new__(cls, value, shape, dtype, name)

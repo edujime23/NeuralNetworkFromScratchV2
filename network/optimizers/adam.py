@@ -22,13 +22,13 @@ class AdamOptimizer(Optimizer):
         self.beta_2 = beta_2
         self.epsilon = epsilon
 
-    def build(self, var_list: List[np.ndarray]) -> None:
+    def build(self, var_list: List[np.typing.ArrayLike]) -> None:
         # Create 'm' and 'v' slots for each variable
         for var in var_list:
             self.add_slot(var, 'm')
             self.add_slot(var, 'v')
 
-    def update_step(self, grad: np.ndarray, var: np.ndarray) -> None:
+    def update_step(self, grad: np.typing.ArrayLike, var: np.typing.ArrayLike) -> None:
         # Retrieve slots (momentum and second moment estimates)
         m = self.get_slot(var, 'm')
         v = self.get_slot(var, 'v')
@@ -55,22 +55,38 @@ class AdamOptimizer(Optimizer):
         var[...] -= res['var']
 
     @staticmethod
-    @njit(parallel=True, fastmath=True, cache=True)
-    def _update_step_math(m: np.typing.ArrayLike, v: np.typing.ArrayLike, grad: np.typing.ArrayLike,
-                          beta_1: float, beta_2: float, epsilon: float, learning_rate: float,
-                          bias_correction_1: float, bias_correction_2: float):
-        # Update first moment estimate
-        m_new = beta_1 * m + (1 - beta_1) * grad
+    @njit(parallel=True, fastmath=True, cache=True, nogil=True, inline='always')
+    def _update_step_math(
+        m: np.typing.ArrayLike, v: np.typing.ArrayLike, grad: np.typing.ArrayLike,
+        beta_1: float, beta_2: float, epsilon: float, learning_rate: float,
+        bias_correction_1: float, bias_correction_2: float
+    ):
+        # Ensure arrays are contiguous for performance
+        m = np.ascontiguousarray(m)
+        v = np.ascontiguousarray(v)
+        grad = np.ascontiguousarray(grad)
 
-        # Update second moment estimate (using the squared magnitude of the gradient)
-        v_new = beta_2 * v + (1 - beta_2) * (grad * np.conj(grad)).real
+        # Compute complementary factors for beta values
+        one_minus_beta1 = 1.0 - beta_1
+        one_minus_beta2 = 1.0 - beta_2
 
-        # Compute bias-corrected estimates for both first and second moments
+        # Update biased first moment estimate (m)
+        m_new = beta_1 * m + one_minus_beta1 * grad
+
+        # Compute squared gradient (element-wise)
+        grad_sq = np.real(grad * np.conj(grad))
+
+        # Update biased second moment estimate (v)
+        v_new = beta_2 * v + one_minus_beta2 * grad_sq
+
+        # Compute bias-corrected first and second moment estimates
         m_hat = m_new / bias_correction_1
         v_hat = v_new / bias_correction_2
-        # Compute the update step
-        var_new = learning_rate * m_hat / (v_hat**(1/2) + epsilon)
 
+        # Compute parameter update value
+        var_new = learning_rate * m_hat / ((v_hat)**1/2 + epsilon)
+
+        # Return updated values for m, v, and parameter adjustment
         return {'m': m_new, 'v': v_new, 'var': var_new}
 
     @classmethod
