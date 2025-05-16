@@ -33,6 +33,10 @@ class Optimizer:
     @property
     def iterations(self) -> int:
         return self._iterations
+    
+    @iterations.setter
+    def iterations(self, value: int) -> None:
+        self._iterations = value
 
     def compute_gradients(
         self,
@@ -80,7 +84,7 @@ class Optimizer:
         for grad, var in grads_and_vars:
             if grad is None:
                 continue
-            self.update_step(grad, var)
+            self.update_step(np.conj(grad), var)
 
         self._iterations += 1
 

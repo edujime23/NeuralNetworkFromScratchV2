@@ -8,7 +8,7 @@ import numpy as np
 # Testing on f(w) = (w - 3)^2
 target = np.array([1 + 2j, 3 + 4j])
 w = Variable(value=[0.0+0.0j, 0.0+0.0j], shape=(2,), dtype=np.complex64, trainable=True, name='w', initializer='zeros')
-opt = AdamOptimizer(learning_rate=1e-1)
+opt = AdamOptimizer(learning_rate=1e-2)
 steps = int(1e4)
 
 def func(x):
@@ -16,8 +16,8 @@ def func(x):
     error *= np.cos(x) / np.sqrt(np.pi)
     return error
 
-def mse(x):
-    return np.mean((x - target) * np.conj(x - target)).real
+def losss(x):
+    return np.mean(np.abs(target-x)**2)
 
 def run_optimization():
     print("Step\tw value")
@@ -26,12 +26,13 @@ def run_optimization():
             tape.watch(w)
             out = func(w)
             
-        loss = mse(out)
-            
-        grad = tape.gradient(loss, w)
-        # print(f"Grad: {grad}")
-        opt.apply_gradients([(grad, w)])
-        if i % (steps // 100) == 0:
+            loss = losss(out)
+
+        holo, anti = tape.gradient(loss, w)
+        opt.apply_gradients([(holo, w)])
+        
+        if i % (steps // 10) == 0:
+            # print(f"Grad: {holo} {anti}")
             print(f"{i+1}\t{w}\t{loss}")
             
         if not loss:

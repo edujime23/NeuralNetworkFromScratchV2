@@ -1,178 +1,288 @@
-from typing import Tuple, Any
+from typing import Tuple, Any, Union
 import numpy as np
-from .util import ensure_shape
+from .util import ensure_shape, complex_log
 
 class ArithmeticGradients:
     @staticmethod
-    def add(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        a, b = inputs
-        grad_a = grad_output
-        grad_b = grad_output
-
-        return [ensure_shape(grad_a, np.shape(a)),
-                ensure_shape(grad_b, np.shape(b))]
-        
-    @staticmethod
-    def subtract(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        a, b = inputs
-        grad_a = grad_output
-        grad_b = -grad_output
-
-        return [ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()),
-                ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())]
-
-    @staticmethod
-    def multiply(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def add(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
         a, b = inputs
 
-        # If inputs are complex, apply conjugate, else use them as is for real inputs
-        grad_a = grad_output * np.conjugate(b)  # Derivative of f(x, y) = x * y w.r.t. x is just y
-        grad_b = grad_output * np.conjugate(a)  # Derivative w.r.t. y is just x
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        grad_a_h = grad_output_h
+        grad_b_h = grad_output_h
+
+        grad_a_ah = np.zeros_like(a)
+        grad_b_ah = np.zeros_like(b)
 
         return [
-            ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()),
-            ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())
+            (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(grad_a_ah, np.shape(a))),
+            (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(grad_b_ah, np.shape(b))),
         ]
         
     @staticmethod
-    def divide(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def subtract(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
         a, b = inputs
-        
-        # Gradient with respect to a: grad_a = grad_output / np.conjugate(b)
-        grad_a = grad_output / np.conjugate(b)
-        
-        # Gradient with respect to b: grad_b = -grad_output * np.conjugate(a) / (np.conjugate(b) * np.conjugate(b))
-        grad_b = -grad_output * np.conjugate(a) / (np.conjugate(b) * np.conjugate(b))
 
-        # Ensure the gradients have the correct shape based on the input shapes
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        grad_a_h = grad_output_h
+        grad_b_h = -grad_output_h
+
+        grad_a_ah = np.zeros_like(a)
+        grad_b_ah = np.zeros_like(b)
+
         return [
-            ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()),
-            ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())
+            (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(grad_a_ah, np.shape(a))),
+            (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(grad_b_ah, np.shape(b))),
+        ]
+
+    @staticmethod
+    def multiply(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
+        a, b = inputs
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        # Holomorphic derivatives
+        grad_a_h = grad_output_h * b
+        grad_b_h = grad_output_h * a
+
+        # Anti-holomorphic derivatives are zero
+        grad_a_ah = np.zeros_like(a)
+        grad_b_ah = np.zeros_like(b)
+
+        return [
+            (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(grad_a_ah, np.shape(a))),
+            (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(grad_b_ah, np.shape(b))),
         ]
         
     @staticmethod
-    def floor_divide(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        # warnings.warn("Gradient of floor_divide is zero almost everywhere and undefined at discontinuities.")
+    def divide(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
         a, b = inputs
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        grad_a_h = grad_output_h / b
+        grad_b_h = -grad_output_h * a / (b * b)
         
-        # The gradient of floor_divide is zero almost everywhere
+        grad_a_ah = np.zeros_like(a)
+        grad_b_ah = np.zeros_like(b)
+
+
         return [
-            np.zeros_like(a, dtype=grad_output.dtype), 
-            np.zeros_like(b, dtype=grad_output.dtype)
+            (ensure_shape(grad_a_h, np.shape(a)), grad_a_ah),
+            (ensure_shape(grad_b_h, np.shape(b)), grad_b_ah)
         ]
         
     @staticmethod
-    def remainder(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def floor_divide(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
         a, b = inputs
 
-        grad_a = grad_output
-        grad_b = -grad_output * np.floor(np.divide(a, b))
+        grad_a_h = np.zeros_like(a)
+        grad_b_h = np.zeros_like(b)
+
+        grad_a_ah = np.zeros_like(a)
+        grad_b_ah = np.zeros_like(b)
 
         return [
-            ensure_shape(grad_a, a.shape if hasattr(a, 'shape') else ()),
-            ensure_shape(grad_b, b.shape if hasattr(b, 'shape') else ())
+            (grad_a_h, grad_a_ah),
+            (grad_b_h, grad_b_ah),
         ]
         
     @staticmethod
-    def power(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def remainder(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
+        a, b = inputs
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        eps = np.finfo(a.dtype).eps
+        safe_b = b + eps * (np.abs(b) < eps)
+
+        val_floor = np.floor(np.divide(a, safe_b))
+
+        grad_a_h = grad_output_h
+        grad_b_h = -grad_output_h * val_floor
+
+        grad_a_ah = np.zeros_like(a)
+        grad_b_ah = np.zeros_like(b)
+
+        return [
+            (ensure_shape(grad_a_h, np.shape(a)), grad_a_ah),
+            (ensure_shape(grad_b_h, np.shape(b)), grad_b_ah),
+        ]
+        
+    @staticmethod
+    def power(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
         base, exp = inputs
-        base_val = base if hasattr(base, 'shape') else np.array(base)
-        exp_val = exp if hasattr(exp, 'shape') else np.array(exp)
 
-        base_shape = base.shape if hasattr(base, 'shape') else ()
-        exp_shape = exp.shape if hasattr(exp, 'shape') else ()
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
 
-        # Gradient with respect to base: grad_base = exp * base^(exp - 1)
-        grad_base = grad_output * exp_val * np.power(base_val, exp_val - 1)
+        base_safe = base
 
-        # Gradient with respect to exp: grad_exp = base^exp * log(base)
-        # For complex base, we use the complex logarithm: np.log(base)
-        # For real base, this will also work correctly as it defaults to the real logarithm.
-        grad_exp = grad_output * np.log(np.abs(base_val) + np.finfo(base_val.dtype).eps) * np.power(base_val, exp_val)
+        log_base = complex_log(base_safe)
 
-        # If the exponent is a scalar (i.e., exp.shape == ()), we need to reduce the gradient of exp
-        if exp_shape == ():
-            grad_exp = np.sum(grad_exp)
-        
-        # If the base is a scalar (i.e., base.shape == ()), we need to reduce the gradient of base
-        if base_shape == ():
-            grad_base = np.sum(grad_base)
+        grad_base = grad_output_h * exp * np.power(base_safe, exp - 1)
+        grad_exp = grad_output_h * np.power(base_safe, exp) * log_base
+
+        grad_base_ah = np.zeros_like(base)
+        grad_exp_ah = np.zeros_like(exp)
 
         return [
-            ensure_shape(grad_base, base_shape),
-            ensure_shape(grad_exp, exp_shape)
+            (ensure_shape(grad_base, np.shape(base)), grad_base_ah),
+            (ensure_shape(grad_exp, np.shape(exp)), grad_exp_ah),
         ]
         
     @staticmethod
-    def square(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp, = inputs
-        
-        # Compute the gradient with respect to the input
-        grad_inp = grad_output * 2 * inp  # for complex inputs, use conjugate
+    def square(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
+        z, = inputs
 
-        # Handle scalar case by summing the gradient
-        if hasattr(inp, 'shape') and inp.shape == ():
-            grad_inp = np.sum(grad_inp)
-        
-        # Ensure the gradient has the same shape as the input
-        return [ensure_shape(grad_inp, inp.shape if hasattr(inp, 'shape') else ())]
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        grad_h = grad_output_h * (2 * z)
+
+
+        return [(ensure_shape(grad_h, np.shape(z)), np.zeros_like(z))]
 
     @staticmethod
-    def float_power(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def float_power(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
         x, y = inputs
+        x_shape = np.shape(x)
+        y_shape = np.shape(y)
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(grad_output)
+
+        grad_x = grad_output_h * np.where(x != 0, y * x**(y - 1), 0)
         
-        # Gradient with respect to x: y * x^(y - 1)
-        grad_x = grad_output * np.where(x != 0, y * x**(y - 1), 0)
-        
-        # Gradient with respect to y: x^y * log(x)
-        grad_y = grad_output * np.where(x != 0, x**y * np.log(x), 0)
-        
-        # Ensure the gradients have the same shape as the inputs
-        return [ensure_shape(grad_x, x.shape), ensure_shape(grad_y, y.shape)]
-    
-    @staticmethod
-    def reciprocal(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        # Derivative of reciprocal(x) = -1/x^2, using conjugate for complex inputs
+        grad_y = grad_output_h * np.where(x > 0, x**y * np.log(x), 0) 
+
         return [
-            ensure_shape(
-                -grad_output / (np.conjugate(inp) ** 2 + np.finfo(inp.dtype).eps),  # Handling complex conjugate and small eps
-                inp.shape if hasattr(inp, 'shape') else (),
-            )
+            (ensure_shape(grad_x, x_shape), grad_output_ah), 
+            (ensure_shape(grad_y, y_shape), grad_output_ah)  
         ]
     
     @staticmethod
-    def fmod(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        # warnings.warn("Gradient of fmod is not well defined at discontinuities.")
+    def fmod(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
         a, b = inputs
+        a_shape = np.shape(a) if hasattr(a, 'shape') else ()
+        b_shape = np.shape(b) if hasattr(b, 'shape') else ()
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
 
         with np.errstate(divide='ignore', invalid='ignore'):
             trunc_div_result = np.trunc(np.divide(a, b))
+        
+        grad_z = grad_output_h * np.ones_like(a, dtype=grad_output_h.dtype)
 
-        return [ensure_shape(grad_output * np.ones_like(grad_output, dtype=grad_output.dtype), a.shape if hasattr(a, 'shape') else ()),
-                ensure_shape(grad_output * -trunc_div_result.astype(grad_output.dtype), b.shape if hasattr(b, 'shape') else ())]
+        grad_zh = np.zeros_like(a, dtype=grad_output_h.dtype)
+
+        grad_b = grad_output_h * (-trunc_div_result.astype(grad_output_h.dtype))
+
+        return [
+            (ensure_shape(grad_z, a_shape), grad_zh),
+            (ensure_shape(grad_b, b_shape), grad_zh)
+        ]
         
     @staticmethod
-    def negative(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        
-        # The derivative of -x with respect to x is -1, so we multiply by -1.
-        grad_inp = -grad_output
-        
-        return [ensure_shape(grad_inp, inp.shape if hasattr(inp, 'shape') else ())]
+    def negative(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
+        z = inputs[0]
+        z_shape = np.shape(z)
 
-    @staticmethod
-    def absolute(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-
-        inp = inputs[0]
-        inp_shape = inp.shape if hasattr(inp, 'shape') else ()
-
-        if np.iscomplexobj(inp):
-            abs_inp = np.abs(inp)
-            denom = np.where(abs_inp == 0, 1.0, abs_inp)
-            grad_inp = grad_output * inp / denom
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
         else:
+            grad_output_h = grad_output
 
-            grad_inp = grad_output * np.sign(inp)
+        grad_h = -grad_output_h
+        grad_ah = np.zeros_like(z)
 
-        return [ensure_shape(grad_inp, inp_shape)]
+        return [
+            (ensure_shape(grad_h, z_shape), grad_ah)
+        ]
+
+    @staticmethod
+    def absolute(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
+        z = inputs[0]
+        z_shape = np.shape(z)
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(grad_output)
+
+        abs_z = np.abs(z)
+        safe_abs = np.where(abs_z == 0, 1.0, abs_z)
+
+        if np.iscomplexobj(z):
+            grad_h = grad_output_h * (np.conj(z) / (2 * safe_abs))
+            grad_ah = grad_output_ah * (z / (2 * safe_abs))
+        else:
+            sgn = np.sign(z)
+            grad_h = grad_output_h * (sgn / 2)
+            grad_ah = grad_output_ah * (sgn / 2)
+
+        return [(ensure_shape(grad_h, z_shape), ensure_shape(grad_ah, z_shape))]

@@ -1,6 +1,6 @@
 import numpy as np
 from .gradients import GRADIENTS
-from typing import List, Self, Callable, Tuple, Dict, overload, Iterable, Optional
+from typing import Any, Iterable, List, Self, Callable, Tuple, Dict, Union, overload, Optional
 import warnings
 
 class GradientTape:
@@ -18,25 +18,31 @@ class GradientTape:
 
     def __exit__(self, *args: Tuple[object], **kwargs: Dict[str, object]) -> None:
         None if self.persistent else GradientTape._GRADIENTS_TAPES.remove(self)
-       
-    @overload 
-    def watch(self, *objs: List[np.typing.ArrayLike]) -> None: ...
-    @overload
-    def watch(self, obj: np.typing.ArrayLike) -> None: ...
-    def watch(self, *objs: np.typing.ArrayLike):
-        if issubclass(type(objs), (np.ndarray, np.number)):
-            return self._watch(objs)
-        elif isinstance(objs, Iterable):
-            if len(objs) <= 1:
-                return self._watch(objs[0])
-            for o in objs:
-                self.watch(o)
+    
+    
+    def watch(self, *objs: Tuple[np.typing.NDArray[Any]]) -> None:
+        """
+        Watches the provided objects for gradient computation.
+        Parameters:
+            *objs (Tuple[np.typing.NDArray[Any]]): One or more numpy arrays or numbers to be watched.
+        Notes:
+            - If multiple objects are provided, each is checked to ensure it is a numpy array or number.
+            - A warning is issued for any object that is not a numpy array or number, and such objects are skipped.
+        """
+        
+        if len(objs) == 1:
+            return self._watch(objs[0])
+        for o in objs:
+            if not issubclass(type(o), (np.ndarray, np.number)):
+                warnings.warn(f"Cannot watch object of type {type(o)}. Only numpy arrays and numbers are supported.")
+                continue
+            self._watch(o)
             
-    def _watch(self, obj: np.typing.ArrayLike):
+    def _watch(self, obj: np.typing.NDArray[Any]):
         if id(obj) not in self.watched:
             self.watched.append(id(obj))
 
-    def record(self, func: Callable, method: str, inputs: Tuple[np.typing.ArrayLike], kwargs: Dict[str, np.typing.ArrayLike], result: np.typing.ArrayLike) -> None:
+    def record(self, func: Callable, method: str, inputs: Tuple[np.typing.NDArray[Any]], kwargs: Dict[str, np.typing.NDArray[Any]], result: np.typing.NDArray[Any]) -> None:
         if all(id(input) not in self.watched for input in inputs):
             return
         self.watch(result)
@@ -48,50 +54,41 @@ class GradientTape:
             'result': result,
         })
         
-    # Overload hell
-    @overload
-    def gradient(self, targets: List[np.typing.ArrayLike], sources: List[np.typing.ArrayLike]) -> List[List[np.typing.ArrayLike]]: ...
-    @overload
-    def gradient(self, targets: List[np.typing.ArrayLike], sources: Dict[str, np.typing.ArrayLike]) -> List[Dict[str, np.typing.ArrayLike]]: ...
-    @overload
-    def gradient(self, targets: List[np.typing.ArrayLike], sources: np.typing.ArrayLike) -> List[Dict[str, np.typing.ArrayLike]]: ...
-    @overload
-    def gradient(self, targets: Dict[str, np.typing.ArrayLike], sources: List[np.typing.ArrayLike]) -> List[List[np.typing.ArrayLike]]: ...
-    @overload
-    def gradient(self, targets: Dict[str, np.typing.ArrayLike], sources: Dict[str, np.typing.ArrayLike]) -> List[Dict[str, np.typing.ArrayLike]]: ...
-    @overload
-    def gradient(self, target: Dict[str, np.typing.ArrayLike], sources: np.typing.ArrayLike) -> np.typing.ArrayLike: ...
-    @overload
-    def gradient(self, target: np.typing.ArrayLike, sources: List[np.typing.ArrayLike]) -> List[np.typing.ArrayLike]: ...
-    @overload
-    def gradient(self, target: np.typing.ArrayLike, sources: Dict[str, np.typing.ArrayLike]) -> Dict[str, np.typing.ArrayLike]: ...
-    @overload
-    def gradient(self, target: np.typing.ArrayLike, sources: np.typing.ArrayLike) -> np.typing.ArrayLike: ...
-    def gradient(self, target, sources):
+    def gradient(
+        self, 
+        target: Union[np.typing.NDArray[Any], List[np.typing.NDArray[Any]], Tuple[np.typing.NDArray[Any]], Dict[str, np.typing.NDArray[Any]]], 
+        sources: Union[np.typing.NDArray[Any], List[np.typing.NDArray[Any]], Dict[str, np.typing.NDArray[Any]]],
+        
+    ) -> Union[
+        Iterable[Tuple[np.typing.ArrayLike]],
+        Tuple[np.typing.ArrayLike],   
+    ]:
         if issubclass(type(target), (np.ndarray, np.number)):
             if isinstance(sources, dict):
                 return {key: self.gradient(target, val)
                         for key, val in sources.items()}
             elif isinstance(sources, (list, tuple)):
-                return [self._gradient(target, src) for src in sources]
-            elif issubclass(type(sources), np.ndarray):
-                return self._gradient(target, sources)
+                return [self.gradient(target, src) for src in sources]
             return self._gradient(target, sources)
 
-        if isinstance(target, (list, tuple)):
+        elif isinstance(target, (list, tuple)):
             return [self.gradient(t, sources) for t in target]
 
-        if isinstance(target, dict):
+        elif isinstance(target, dict):
             return {key: self.gradient(val, sources)
                     for key, val in target.items()}
 
         raise TypeError(f"Unsupported target type: {type(target)}")
-        
+    
 
-    def _gradient(self, target: np.typing.ArrayLike, source: np.typing.ArrayLike):
+    def _gradient(self, target: np.typing.NDArray[Any], source: np.typing.NDArray[Any]) -> Union[np.typing.NDArray[Any]]:
         if id(target) not in self.watched:
             return None
-        grads = { id(target): np.ones_like(target) }
+
+        grads: Dict[int, Tuple[np.ndarray, np.ndarray]] = {
+            id(target): (np.ones_like(target, dtype=target.dtype), np.zeros_like(target, dtype=target.dtype))
+        }
+
         for op in reversed(self.operations):
             func = op['func']
             inputs = op['inputs']
@@ -101,23 +98,32 @@ class GradientTape:
             if id(result) not in grads:
                 continue
 
-            grad_output = grads[id(result)]
-            if dfunc := GRADIENTS.get(func.__name__, None):
-                try:
-                    grads_list = dfunc(grad_output, inputs, **kwargs)
-                except TypeError: 
-                    dfunc(grad_output, inputs)
-                for inp, g in zip(inputs, grads_list):
-                    grads[id(inp)] = grads.get(id(inp), 0.0) + g
-            else:
+            grad_res = grads[id(result)]
+            dfunc = GRADIENTS.get(func.__name__)
+            if not dfunc:
                 warnings.warn(f"Gradient function for {func.__name__} not found. Skipping.")
-                    
-        return grads.get(id(source))
+                continue
+
+            try:
+                raw = dfunc(grad_res, inputs, **kwargs)
+            except TypeError:
+                raw = dfunc(grad_res, inputs)
+
+            for inp, g in zip(inputs, raw):
+                g_h, g_ah = g if isinstance(g, tuple) else (g, np.zeros_like(g))
+
+                prev_h, prev_ah = grads.get(id(inp), (np.zeros_like(g_h), np.zeros_like(g_ah)))
+                grads[id(inp)] = (prev_h + g_h, prev_ah + g_ah)
+
+        holo, anti = grads.get(id(source), (0.0, 0.0))
+
+        return (holo, anti)
     
     def reset(self, watched: bool = True) -> None:
         self.operations.clear()
         self.watched.clear() if watched else None
     
-    def __dell__(self):
-        GradientTape._GRADIENTS_TAPES.remove(self)
+    def __del__(self):
+        if self in GradientTape._GRADIENTS_TAPES:
+            GradientTape._GRADIENTS_TAPES.remove(self)
 

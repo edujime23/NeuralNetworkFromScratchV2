@@ -84,7 +84,7 @@ class AdamOptimizer(Optimizer):
         v_hat = v_new / bias_correction_2
 
         # Compute parameter update value
-        var_new = learning_rate * m_hat / ((v_hat)**1/2 + epsilon)
+        var_new = learning_rate * m_hat / (v_hat**(1/2) + epsilon)
 
         # Return updated values for m, v, and parameter adjustment
         return {'m': m_new, 'v': v_new, 'var': var_new}

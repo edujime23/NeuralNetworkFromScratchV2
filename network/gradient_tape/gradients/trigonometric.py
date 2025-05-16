@@ -1,121 +1,175 @@
+import warnings
 from .util import ensure_shape
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 import numpy as np
 
 class TrigonometricGradients:
     @staticmethod
-    def sin(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        
-        # For real or complex inputs, we compute the gradient of sin(x) -> cos(x)
-        grad_inp = grad_output * np.cos(np.conjugate(inp))  # Use conjugate for complex inputs
-        
-        return [ensure_shape(grad_inp, inp.shape if hasattr(inp, 'shape') else ())]
-    
-    @staticmethod
-    def cos(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        
-        # For real or complex inputs, we compute the gradient of cos(x) -> -sin(x)
-        grad_inp = -grad_output * np.sin(np.conjugate(inp))  # Use conjugate for complex inputs
-    
-        return [ensure_shape(grad_inp, inp.shape if hasattr(inp, 'shape') else ())]
-    
-    @staticmethod
-    def tan(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
+    def sin(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
+        z = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        grad_h = grad_output_h * np.cos(z)
+
         return [
-            ensure_shape(
-                grad_output
-                / (np.cos(np.conjugate(inp)) ** 2),
-                inp.shape if hasattr(inp, 'shape') else (),
-            )
+            (ensure_shape(grad_h, z.shape), np.zeros_like(z))
         ]
     
     @staticmethod
-    def arcsin(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        conj_inp = np.conjugate(inp)
-        denom = np.sqrt(1 - conj_inp ** 2)
-        
-        return [
-            ensure_shape(
-                grad_output / denom,
-                inp.shape if hasattr(inp, 'shape') else (),
-            )
-        ]
+    def cos(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]]
+    ):
+        z = inputs[0]
 
-    @staticmethod
-    def arccos(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        conj_inp = np.conjugate(inp)
-        denom = np.sqrt(1 - conj_inp ** 2)
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        dz = grad_output_h * (-np.sin(z))
 
         return [
-            ensure_shape(
-                -grad_output / denom,
-                inp.shape if hasattr(inp, 'shape') else (),
-            )
-        ]
-
-    @staticmethod
-    def arctan(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        conj_inp = np.conjugate(inp)
-        denom = 1 + conj_inp ** 2
-
-        return [
-            ensure_shape(
-                grad_output / denom,
-                inp.shape if hasattr(inp, 'shape') else (),
-            )
+            (ensure_shape(dz, z.shape), np.zeros_like(z))
         ]
     
     @staticmethod
-    def arctan2(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def tan(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
+        z = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        dz = grad_output_h * (1 / np.cos(z) ** 2)
+
+        return [
+            (ensure_shape(dz, z.shape), np.zeros_like(z))
+        ]
+    
+    @staticmethod
+    def arcsin(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
+        z = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        dz = grad_output_h / np.sqrt(1 - z**2)
+
+        return [
+            (ensure_shape(dz, z.shape), np.zeros_like(z))
+        ]
+
+    @staticmethod
+    def arccos(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
+        z = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        # ∂/∂z arccos(z) = -1 / sqrt(1 - z^2)
+        dz = -grad_output_h / np.sqrt(1 - z**2)
+
+        return [
+            (ensure_shape(dz, z.shape), np.zeros_like(z))
+        ]
+
+    @staticmethod
+    def arctan(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
+        z = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        dz = grad_output_h / (1 + z**2)
+
+        return [
+            (ensure_shape(dz, z.shape), np.zeros_like(z))
+        ]
+    
+    @staticmethod
+    def arctan2(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
+    ):
         y, x = inputs
-        if np.iscomplexobj(y) or np.iscomplexobj(x):
-            warnings.warn("Gradient of arctan2 is not well-defined for complex inputs. Returning zero gradients.")
-            return [np.zeros_like(y, dtype=grad_output.dtype), np.zeros_like(x, dtype=grad_output.dtype)]
 
-        denom = x ** 2 + y ** 2 + np.finfo(inputs[0].dtype).eps
-        grad_y = grad_output * x / denom
-        grad_x = -grad_output * y / denom
+        # Handle possible tuple grad_output for holo and anti-holo parts
+        if isinstance(grad_output, tuple):
+            grad_out_h, _ = grad_output
+        else:
+            grad_out_h = grad_output
+
+        # Combine into complex argument w = x + i y
+        w = x + 1j * y
+        inv_w = 1.0 / w
+
+        # Holomorphic gradient components
+        grad_y_h = grad_out_h * np.real(inv_w)
+        grad_x_h = grad_out_h * np.imag(inv_w)
 
         return [
-            ensure_shape(grad_y, y.shape if hasattr(y, 'shape') else ()),
-            ensure_shape(grad_x, x.shape if hasattr(x, 'shape') else ())
+            (ensure_shape(grad_y_h, y.shape), np.zeros_like(y)),
+            (ensure_shape(grad_x_h, x.shape), np.zeros_like(x))
         ]
         
     @staticmethod
-    def sinc(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def sinc(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
         x = inputs[0]
-        
-        # Calculate the gradient of sinc(x) using the formula
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
+        else:
+            grad_output_h = grad_output
+
+        # Calculate the sinc function gradient using the formula
         pi_x = np.pi * x
         grad_val = np.where(x != 0,
                             (np.cos(pi_x) * np.pi * x - np.sin(pi_x)) / (np.pi * x**2),
                             0)  # Handle x == 0 case
-        
-        # Multiply the gradient value by the grad_output (chain rule)
-        grad = grad_output * grad_val
-        
+
+        # Gradients for sinc function (holomorphic and anti-holomorphic parts)
+        grad_x_h = grad_output_h * grad_val
+
         # Ensure the result has the same shape as the input
-        return [ensure_shape(grad, x.shape)]
+        return [
+            (ensure_shape(grad_x_h, x.shape), np.zeros_like(x))
+        ]
         
     @staticmethod
-    def hypot(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        x, y = inputs
-        if np.iscomplexobj(x) or np.iscomplexobj(y):
-            # For complex numbers, we calculate the Euclidean distance in the complex plane
-            # The same formula holds for complex numbers, but we use np.abs for magnitude
-            denom = np.sqrt(np.conj(x) * x + np.conj(y) * y + np.finfo(inputs[0].dtype).eps)
+    def hypot(grad_output: np.ndarray,
+            inputs: Tuple[np.ndarray, np.ndarray]):
+        z1, z2 = inputs
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
         else:
-            # For real numbers, use the same formula
-            denom = np.sqrt(x ** 2 + y ** 2 + np.finfo(inputs[0].dtype).eps)
-        grad_x = grad_output * x / denom
-        grad_y = grad_output * y / denom
+            grad_output_h = grad_output
+
+        norm_sq = np.abs(z1)**2 + np.abs(z2)**2 + np.finfo(z1.dtype).eps
+        r = np.sqrt(norm_sq)
+
+        grad_z1_h  = grad_output_h  * (np.conj(z1) / (2 * r))
+        grad_z1_ah = grad_output_ah * (z1 / (2 * r))
+
+        grad_z2_h  = grad_output_h  * (np.conj(z2) / (2 * r))
+        grad_z2_ah = grad_output_ah * (z2 / (2 * r))
+
         return [
-            ensure_shape(grad_x, x.shape if hasattr(x, 'shape') else ()),
-            ensure_shape(grad_y, y.shape if hasattr(y, 'shape') else ())
+            (ensure_shape(grad_z1_h, z1.shape), ensure_shape(grad_z1_ah, z1.shape)),
+            (ensure_shape(grad_z2_h, z2.shape), ensure_shape(grad_z2_ah, z2.shape))
         ]

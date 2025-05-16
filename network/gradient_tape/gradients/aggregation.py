@@ -17,31 +17,31 @@ class AggregationGradients:
         return [ensure_shape(grad_output, inp.shape)]
     
     @staticmethod
-    def mean(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)], axis: Optional[Union[int, Tuple[int, ...]]] = None, keepdims: Optional[bool] = False) -> List[np.typing.NDArray[Any]]:
+    def mean(
+        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
+        inputs: Tuple[np.typing.NDArray[Any]],
+        axis: Optional[Union[int, Tuple[int, ...]]] = None,
+        keepdims: Optional[bool] = False
+    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
         inp = inputs[0]
-        
-        if hasattr(inp, 'shape'):
-            shape = inp.shape
+        shape = inp.shape if hasattr(inp, 'shape') else ()
 
-            if axis is None:
-                # When no axis is specified, we sum over all dimensions
-                count = np.prod(shape)
-                grad = np.broadcast_to(grad_output, shape) / count
-            else:
-                # When an axis is specified, we sum over the specified axis
-                axes_to_mean = (axis,) if isinstance(axis, int) else tuple(axis)
-                count = np.prod([shape[a] for a in axes_to_mean])
-                
-                # For axis-specific mean, the gradient should be broadcasted over the remaining dimensions
-                grad: np.typing.NDArray[Any] = np.sum(grad_output, axis=axes_to_mean, keepdims=bool(keepdims)) / count
-
-            # If the input is complex, we conjugate the gradients
-            if np.iscomplexobj(inp):
-                grad = np.conj(grad)
+        if isinstance(grad_output, tuple):
+            grad_output_h, _ = grad_output
         else:
-            grad = grad_output  # If no shape attribute, return grad_output directly
+            grad_output_h = grad_output
 
-        return [ensure_shape(grad, inp.shape if hasattr(inp, 'shape') else ())]
+        if axis is None:
+            count = np.prod(shape) if shape else 1
+        else:
+            axes = (axis,) if isinstance(axis, int) else axis
+            count = np.prod([shape[a] for a in axes])
+            if not keepdims:
+                grad_output_h = np.expand_dims(grad_output_h, axes)
+        grad = np.broadcast_to(grad_output_h, shape) / count
+        grad_ah = np.zeros_like(grad)
+
+        return [(ensure_shape(grad, shape), ensure_shape(grad_ah, shape))]
     
     @staticmethod
     def nanmean(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)], axis: Optional[Union[int, Tuple[int, ...]]] = None, keepdims: Optional[bool] = False):
