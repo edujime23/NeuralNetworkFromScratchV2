@@ -4,28 +4,52 @@ from .util import ensure_shape
 
 class ExponentialGradients:
     @staticmethod
-    def exp(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def exp(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         inp = inputs[0]
-        
-        # The gradient of exp(x) with respect to x is exp(x)
-        grad_inp = grad_output * np.exp(inp)
-        
-        return [ensure_shape(grad_inp, inp.shape if hasattr(inp, 'shape') else ())]
-    
-    @staticmethod
-    def exp2(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        # Compute the gradient using the chain rule
-        grad = grad_output * np.log(2) * 2**np.conjugate(inp)
-        return [ensure_shape(grad, inp.shape if hasattr(inp, 'shape') else ())]
-    
-    @staticmethod
-    def expm1(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
-        # The derivative of expm1(x) = e^x - 1 is e^x
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = grad_output_h * np.exp(np.conjugate(inp))
+        grad_ah = grad_output_ah * np.exp(inp)
+
         return [
-            ensure_shape(
-                grad_output * np.exp(np.conjugate(inp)), 
-                inp.shape if hasattr(inp, 'shape') else ()
-            )
+            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
+        ]
+
+    @staticmethod
+    def exp2(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        inp = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = grad_output_h * np.log(2) * 2**np.conjugate(inp)
+        grad_ah = grad_output_ah * np.log(2) * 2**inp
+
+        return [
+            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
+        ]
+
+    @staticmethod
+    def expm1(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        inp = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = grad_output_h * np.exp(np.conjugate(inp))
+        grad_ah = grad_output_ah * np.exp(inp)
+
+        return [
+            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
         ]

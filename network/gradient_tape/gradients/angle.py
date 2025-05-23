@@ -4,44 +4,81 @@ from .util import ensure_shape
 
 class AngleGradients:
     @staticmethod
-    def degrees(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        x: np.typing.NDArray[Any] = inputs[0]
-        
-        # Convert the gradient output from radians to degrees
-        grad = grad_output * (180 / np.pi)
-
-        # Ensure the gradient has the same shape as the input x
-        return [ensure_shape(grad, x.shape)]
-
-    @staticmethod
-    def radians(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def degrees(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         x = inputs[0]
-        
-        # Convert the gradient output from degrees to radians
-        grad = grad_output * (np.pi / 180)
 
-        # Ensure the gradient has the same shape as the input x
-        return [ensure_shape(grad, x.shape)]
-    
-    @staticmethod
-    def deg2rad(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        return [ensure_shape(grad_output * np.pi / 180, inputs[0].shape if hasattr(inputs[0], 'shape') else ())]
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        scale = 180 / np.pi
+        grad_h = grad_output_h * scale
+        grad_ah = grad_output_ah * scale
+
+        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
 
     @staticmethod
-    def rad2deg(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        return [ensure_shape(grad_output * 180 / np.pi, inputs[0].shape if hasattr(inputs[0], 'shape') else ())]
-    
-    @staticmethod
-    def angle(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def radians(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         x = inputs[0]
-        
-        # Calculate the squared magnitude of x using conjugate
-        abs_x_squared = np.conj(x) * x
-        
-        # Gradient computation for the angle of a complex number
-        grad_val = 1j * x / abs_x_squared
-        
-        # Apply the incoming gradient
-        grad = grad_output * grad_val
 
-        return [ensure_shape(grad, x.shape)]
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        scale = np.pi / 180
+        grad_h = grad_output_h * scale
+        grad_ah = grad_output_ah * scale
+
+        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+
+    @staticmethod
+    def deg2rad(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        x = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        scale = np.pi / 180
+        grad_h = grad_output_h * scale
+        grad_ah = grad_output_ah * scale
+
+        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+
+    @staticmethod
+    def rad2deg(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        x = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        scale = 180 / np.pi
+        grad_h = grad_output_h * scale
+        grad_ah = grad_output_ah * scale
+
+        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+
+    @staticmethod
+    def angle(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        x = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        abs_x_squared = np.conj(x) * x + np.finfo(x.dtype).eps  # avoid div by zero
+        grad_h = grad_output_h * (1j * x / abs_x_squared)
+        grad_ah = grad_output_ah * (-1j * np.conj(x) / abs_x_squared)
+
+        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]

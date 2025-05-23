@@ -18,12 +18,9 @@ class ArithmeticGradients:
         grad_a_h = grad_output_h
         grad_b_h = grad_output_h
 
-        grad_a_ah = np.zeros_like(a)
-        grad_b_ah = np.zeros_like(b)
-
         return [
-            (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(grad_a_ah, np.shape(a))),
-            (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(grad_b_ah, np.shape(b))),
+            ensure_shape(grad_a_h, np.shape(a)),
+            ensure_shape(grad_b_h, np.shape(b))
         ]
         
     @staticmethod
@@ -41,12 +38,9 @@ class ArithmeticGradients:
         grad_a_h = grad_output_h
         grad_b_h = -grad_output_h
 
-        grad_a_ah = np.zeros_like(a)
-        grad_b_ah = np.zeros_like(b)
-
         return [
-            (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(grad_a_ah, np.shape(a))),
-            (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(grad_b_ah, np.shape(b))),
+            ensure_shape(grad_a_h, np.shape(a)),
+            ensure_shape(grad_b_h, np.shape(b))
         ]
 
     @staticmethod
@@ -65,13 +59,9 @@ class ArithmeticGradients:
         grad_a_h = grad_output_h * b
         grad_b_h = grad_output_h * a
 
-        # Anti-holomorphic derivatives are zero
-        grad_a_ah = np.zeros_like(a)
-        grad_b_ah = np.zeros_like(b)
-
         return [
-            (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(grad_a_ah, np.shape(a))),
-            (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(grad_b_ah, np.shape(b))),
+            ensure_shape(grad_a_h, np.shape(a)),
+            ensure_shape(grad_b_h, np.shape(b))
         ]
         
     @staticmethod
@@ -88,14 +78,10 @@ class ArithmeticGradients:
 
         grad_a_h = grad_output_h / b
         grad_b_h = -grad_output_h * a / (b * b)
-        
-        grad_a_ah = np.zeros_like(a)
-        grad_b_ah = np.zeros_like(b)
-
 
         return [
-            (ensure_shape(grad_a_h, np.shape(a)), grad_a_ah),
-            (ensure_shape(grad_b_h, np.shape(b)), grad_b_ah)
+            ensure_shape(grad_a_h, np.shape(a)),
+            ensure_shape(grad_b_h, np.shape(b))
         ]
         
     @staticmethod
@@ -108,12 +94,9 @@ class ArithmeticGradients:
         grad_a_h = np.zeros_like(a)
         grad_b_h = np.zeros_like(b)
 
-        grad_a_ah = np.zeros_like(a)
-        grad_b_ah = np.zeros_like(b)
-
         return [
-            (grad_a_h, grad_a_ah),
-            (grad_b_h, grad_b_ah),
+            ensure_shape(grad_a_h, np.shape(a)), 
+            ensure_shape(grad_b_h, np.shape(b))
         ]
         
     @staticmethod
@@ -136,12 +119,9 @@ class ArithmeticGradients:
         grad_a_h = grad_output_h
         grad_b_h = -grad_output_h * val_floor
 
-        grad_a_ah = np.zeros_like(a)
-        grad_b_ah = np.zeros_like(b)
-
         return [
-            (ensure_shape(grad_a_h, np.shape(a)), grad_a_ah),
-            (ensure_shape(grad_b_h, np.shape(b)), grad_b_ah),
+            ensure_shape(grad_a_h, np.shape(a)),
+            ensure_shape(grad_b_h, np.shape(b))
         ]
         
     @staticmethod
@@ -156,19 +136,14 @@ class ArithmeticGradients:
         else:
             grad_output_h = grad_output
 
-        base_safe = base
+        log_base = complex_log(base)
 
-        log_base = complex_log(base_safe)
-
-        grad_base = grad_output_h * exp * np.power(base_safe, exp - 1)
-        grad_exp = grad_output_h * np.power(base_safe, exp) * log_base
-
-        grad_base_ah = np.zeros_like(base)
-        grad_exp_ah = np.zeros_like(exp)
+        grad_base = grad_output_h * exp * np.power(base, exp - 1)
+        grad_exp = grad_output_h * np.power(base, exp) * log_base
 
         return [
-            (ensure_shape(grad_base, np.shape(base)), grad_base_ah),
-            (ensure_shape(grad_exp, np.shape(exp)), grad_exp_ah),
+            ensure_shape(grad_base, np.shape(base)),
+            ensure_shape(grad_exp, np.shape(exp))
         ]
         
     @staticmethod
@@ -185,41 +160,41 @@ class ArithmeticGradients:
 
         grad_h = grad_output_h * (2 * z)
 
-
-        return [(ensure_shape(grad_h, np.shape(z)), np.zeros_like(z))]
+        return [
+            ensure_shape(grad_h, np.shape(z))
+        ]
 
     @staticmethod
     def float_power(
         grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any]]
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
     ):
         x, y = inputs
         x_shape = np.shape(x)
         y_shape = np.shape(y)
 
         if isinstance(grad_output, tuple):
-            grad_output_h, grad_output_ah = grad_output
+            grad_output_h, _ = grad_output
         else:
             grad_output_h = grad_output
-            grad_output_ah = np.zeros_like(grad_output)
 
         grad_x = grad_output_h * np.where(x != 0, y * x**(y - 1), 0)
-        
         grad_y = grad_output_h * np.where(x > 0, x**y * np.log(x), 0) 
 
+
         return [
-            (ensure_shape(grad_x, x_shape), grad_output_ah), 
-            (ensure_shape(grad_y, y_shape), grad_output_ah)  
+            ensure_shape(grad_x, x_shape), 
+            ensure_shape(grad_y, y_shape)  
         ]
     
     @staticmethod
     def fmod(
         grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any]]
+        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
     ):
         a, b = inputs
-        a_shape = np.shape(a) if hasattr(a, 'shape') else ()
-        b_shape = np.shape(b) if hasattr(b, 'shape') else ()
+        a_shape = np.shape(a)
+        b_shape = np.shape(b)
 
         if isinstance(grad_output, tuple):
             grad_output_h, _ = grad_output
@@ -229,15 +204,12 @@ class ArithmeticGradients:
         with np.errstate(divide='ignore', invalid='ignore'):
             trunc_div_result = np.trunc(np.divide(a, b))
         
-        grad_z = grad_output_h * np.ones_like(a, dtype=grad_output_h.dtype)
-
-        grad_zh = np.zeros_like(a, dtype=grad_output_h.dtype)
-
+        grad_a = grad_output_h * np.ones_like(a, dtype=grad_output_h.dtype)
         grad_b = grad_output_h * (-trunc_div_result.astype(grad_output_h.dtype))
 
         return [
-            (ensure_shape(grad_z, a_shape), grad_zh),
-            (ensure_shape(grad_b, b_shape), grad_zh)
+            ensure_shape(grad_a, a_shape),
+            ensure_shape(grad_b, b_shape)
         ]
         
     @staticmethod
@@ -254,10 +226,9 @@ class ArithmeticGradients:
             grad_output_h = grad_output
 
         grad_h = -grad_output_h
-        grad_ah = np.zeros_like(z)
 
         return [
-            (ensure_shape(grad_h, z_shape), grad_ah)
+            ensure_shape(grad_h, z_shape)
         ]
 
     @staticmethod
@@ -274,15 +245,15 @@ class ArithmeticGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(grad_output)
 
-        abs_z = np.abs(z)
-        safe_abs = np.where(abs_z == 0, 1.0, abs_z)
-
         if np.iscomplexobj(z):
-            grad_h = grad_output_h * (np.conj(z) / (2 * safe_abs))
-            grad_ah = grad_output_ah * (z / (2 * safe_abs))
+            abs_z = np.abs(z) + np.finfo(z.dtype).eps
+            grad_h = grad_output_h * (np.conj(z) / (2 * abs_z))
+            grad_ah = grad_output_ah * (z / (2 * abs_z))
         else:
             sgn = np.sign(z)
-            grad_h = grad_output_h * (sgn / 2)
-            grad_ah = grad_output_ah * (sgn / 2)
+            grad_h = grad_output_h * sgn
+            grad_ah = grad_output_ah * sgn
 
-        return [(ensure_shape(grad_h, z_shape), ensure_shape(grad_ah, z_shape))]
+        return [
+            (ensure_shape(grad_h, z_shape), ensure_shape(grad_ah, z_shape))
+        ]

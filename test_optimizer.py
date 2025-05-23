@@ -1,56 +1,43 @@
-import cProfile
-import pstats
-from network.optimizers import AdamOptimizer
 from network.gradient_tape import GradientTape
+from network.optimizers import AdamOptimizer
 from network.types import Variable
 import numpy as np
 
-# Testing on f(w) = (w - 3)^2
-target = np.array([1 + 2j, 3 + 4j])
-w = Variable(value=[0.0+0.0j, 0.0+0.0j], shape=(2,), dtype=np.complex64, trainable=True, name='w', initializer='zeros')
-opt = AdamOptimizer(learning_rate=1e-2)
+target = np.array([1 + -1j], dtype=np.complex128)
+
+w = Variable(value=[0.0 + 0.0j], trainable=True, name='w', initializer='xavier_uniform')
+w.initialize()
+
+opt = AdamOptimizer(learning_rate=1e-3)
 steps = int(1e4)
 
 def func(x):
-    error = (x - target) * np.conj(x - target)
-    error *= np.cos(x) / np.sqrt(np.pi)
-    return error
+    return x
 
 def losss(x):
-    return np.mean(np.abs(target-x)**2)
+    return np.mean(np.sqrt(np.conj(target - x) * (target - x)))
 
 def run_optimization():
-    print("Step\tw value")
+    print("Step\tw value\tLoss")
     for i in range(steps):
         with GradientTape() as tape:
             tape.watch(w)
             out = func(w)
-            
             loss = losss(out)
 
         holo, anti = tape.gradient(loss, w)
-        opt.apply_gradients([(holo, w)])
-        
-        if i % (steps // 10) == 0:
-            # print(f"Grad: {holo} {anti}")
-            print(f"{i+1}\t{w}\t{loss}")
-            
-        if not loss:
-            print(f"{i+1}\t{w}\t{loss}")
-            print(f"Converged at step {i+1}")
+
+        grad = holo + anti
+        opt.apply_gradients([(grad, w)])
+
+        if (i + 1) % (steps // 10) == 0:
+            print(f"grad: {grad}\tholo: {holo}\tanti: {anti}")
+            print(f"{i+1}\tw = {w}\tloss = {loss}\tgrad_ho = {holo}\tgrad_anti = {anti}")
+
+        if np.all(loss < 1e-32):
+            print(f"Converged at step {i+1}:  w = {w}  loss = {loss}")
             break
 
-    print(f"\nFinal parameter value after {steps} steps: {w}")
-
-# Profile the function using cProfile
-pr = cProfile.Profile()
-pr.enable()
+    print(f"\nFinal parameter value after {steps} steps: w = {w}")
 
 run_optimization()
-
-pr.disable()
-
-# Create a stats object
-stats = pstats.Stats(pr)
-stats.sort_stats('time')  # Sorting by time spent
-stats.print_stats(3)  # Display the top 3 most time-consuming functions

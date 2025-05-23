@@ -1,32 +1,76 @@
-from typing import Tuple, Any
+from typing import Tuple
 import numpy as np
 from .util import ensure_shape
 
 class RoundingGradients:
     @staticmethod
-    def floor(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        # warnings.warn("Gradient of floor is zero almost everywhere and undefined at integers.")
+    def floor(
+        grad_output: np.ndarray,
+        inputs: Tuple[np.ndarray, ...]
+    ):
         inp = inputs[0]
-        return [ensure_shape(np.zeros_like(grad_output, dtype=grad_output.dtype), inp.shape if hasattr(inp, 'shape') else ())]
-    
-    @staticmethod
-    def ceil(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        # warnings.warn("Gradient of ceil is zero almost everywhere and undefined at integers.")
-        inp = inputs[0]
-        return [ensure_shape(np.zeros_like(grad_output, dtype=grad_output.dtype), inp.shape if hasattr(inp, 'shape') else ())]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
+        grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
+
+        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
 
     @staticmethod
-    def round(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        # warnings.warn("Gradient of round is zero almost everywhere and undefined at .5 boundaries.")
+    def ceil(
+        grad_output: np.ndarray,
+        inputs: Tuple[np.ndarray, ...]
+    ):
         inp = inputs[0]
-        return [ensure_shape(np.zeros_like(grad_output, dtype=grad_output.dtype), inp.shape if hasattr(inp, 'shape') else ())]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
+        grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
+
+        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
 
     @staticmethod
-    def trunc(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        x = inputs[0]
-        
-        # The gradient of truncation is zero everywhere, as it's non-differentiable at integer values.
-        grad = np.zeros_like(x)
+    def round(
+        grad_output: np.ndarray,
+        inputs: Tuple[np.ndarray, ...]
+    ):
+        inp = inputs[0]
 
-        # Ensure the gradient has the same shape as the input x
-        return [ensure_shape(grad, x.shape)]
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
+        grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
+
+        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
+
+    @staticmethod
+    def trunc(
+        grad_output: np.ndarray,
+        inputs: Tuple[np.ndarray, ...]
+    ):
+        inp = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
+        grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
+
+        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]

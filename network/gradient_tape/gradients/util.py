@@ -1,8 +1,19 @@
-from typing import Optional, Tuple, Any
+from typing import Callable, List, Optional, Tuple, Any
 import numpy as np
-from numba import vectorize, complex128, float64
+from numba import vectorize, complex128, float64, int64
+from functools import wraps
 
-@vectorize([complex128(complex128)], cache=True)
+def alias(aliases: List[str]):
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        func.__aliases__ = tuple(aliases)
+        return wrapper
+    return decorator
+
+@alias(['log'])
+@vectorize([complex128(complex128)], cache=True, nopython=True, fastmath=True, target='parallel')
 def complex_log_complex(z):
     x = z.real
     y = z.imag
@@ -12,25 +23,50 @@ def complex_log_complex(z):
     theta = np.arctan2(y, x)
     return complex(np.log(r), theta)
 
-@vectorize([float64(float64)], cache=True)
+@alias(['log'])
+@vectorize([float64(float64), int64(int64)], cache=True, nopython=True, fastmath=True, target='parallel')
 def complex_log_real(z):
-    if z <= 0.0:
-        return -np.inf if z == 0 else np.log(z)
+    # Corrected real log handling:
+    if z == 0:
+        return -np.inf
+    elif z < 0:
+        # Real log undefined for negative inputs, 
+        # raise error or return nan:
+        # Here we return np.nan to avoid crashing, but you can choose to raise.
+        return np.nan
     else:
         return np.log(z)
 
-def complex_log(z):
-    return complex_log_complex(z) if np.iscomplexobj(z) or np.any(z < 0) else complex_log_real(z)
+def complex_log(z: Any) -> Any:
+    """
+    Computes the complex logarithm for complex or real inputs.
+    Uses complex log if input is complex or contains negative values,
+    else uses real log.
+    """
+    z_arr = np.asarray(z)
+    if np.iscomplexobj(z_arr) or np.any(z_arr < 0):
+        return complex_log_complex(z_arr)
+    else:
+        return complex_log_real(z_arr)
 
-def ensure_shape(x: np.typing.NDArray[Any], shape: Optional[Tuple[(int, ...)]] = None) -> np.typing.NDArray[Any]:
+def ensure_shape(
+    x: np.typing.NDArray[Any], 
+    shape: Optional[Tuple[int, ...]] = None
+) -> np.typing.NDArray[Any]:
+    """
+    Ensures that the input array x has the specified shape.
+    If x has more dimensions, sums over leading dims.
+    Sums over broadcasted dims to match target shape.
+    Finally broadcasts to target shape.
+    """
     if shape is None:
-        _target_shape: Tuple[(int, ...)] = ()
+        _target_shape: Tuple[int, ...] = ()
     elif isinstance(shape, int):
         _target_shape = (shape,)
     else:
         _target_shape = tuple(shape)
 
-    x_shape: Tuple[(int, ...)] = x.shape
+    x_shape: Tuple[int, ...] = x.shape
 
     if x_shape == _target_shape:
         return x
@@ -55,7 +91,7 @@ def ensure_shape(x: np.typing.NDArray[Any], shape: Optional[Tuple[(int, ...)]] =
         current_x_shape = x_current.shape
 
     # Sum over dimensions that were broadcasted
-    axes_to_sum_broadcast: list[int] = []
+    axes_to_sum_broadcast: List[int] = []
     effective_x_rank = len(current_x_shape)
 
     for i in range(len(_target_shape)):
@@ -69,6 +105,7 @@ def ensure_shape(x: np.typing.NDArray[Any], shape: Optional[Tuple[(int, ...)]] =
                 axes_to_sum_broadcast.append(x_dim_idx_aligned)
 
     if axes_to_sum_broadcast:
+        # sum along these dims keeping dims for broadcast compatibility
         x_current = np.sum(x_current, axis=tuple(axes_to_sum_broadcast), keepdims=True)
         current_x_shape = x_current.shape
 

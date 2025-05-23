@@ -82,7 +82,7 @@ class Optimizer:
             self._built = True
 
         for grad, var in grads_and_vars:
-            if grad is None:
+            if grad is None or not var.trainable:
                 continue
             self.update_step(np.conj(grad), var)
 

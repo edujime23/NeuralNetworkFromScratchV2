@@ -10,6 +10,7 @@ from .shape import ShapeGradients
 from .special import SpecialGradients
 from .trigonometric import TrigonometricGradients
 from .util import ensure_shape
+from .numerical import numerical_derivative
 
 GRADIENTS: dict[str, object] = {ensure_shape.__name__: ensure_shape}
 

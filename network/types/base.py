@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 from typing import Tuple, Union, Callable, Dict, Optional
 from ..gradient_tape.gradient_tape import GradientTape
@@ -5,10 +6,10 @@ from ..gradient_tape.gradient_tape import GradientTape
 class BaseType(np.ndarray):
     __name = None
     def __new__(cls, value: Optional[Union[np.typing.NDArray, np.number]], shape: Optional[Tuple[int]] = None, dtype: Optional[np.typing.DTypeLike] = None, name: Optional[str] = None):
-        if not shape:
-            shape = value.shape if value is not None else ()
-        if not dtype:
-            dtype = value.dtype if value is not None else np.float32
+        value = np.asarray(value)
+        
+        shape = shape or value.shape
+        dtype = dtype or value.dtype 
             
         obj = np.asarray(np.zeros(shape, dtype)).view(cls)
             
@@ -50,13 +51,21 @@ class BaseType(np.ndarray):
         return result
         
     @staticmethod
-    def _inplace_operation(func, self, other): return func(self, other)
-    def __iadd__(self, other: np.typing.ArrayLike): return self._inplace_operation(np.add, self, other)
-    def __isub__(self, other: np.typing.ArrayLike): return self._inplace_operation(np.subtract, self, other)
-    def __itruediv__(self, other: np.typing.ArrayLike): return self._inplace_operation(np.true_divide, self, other)
-    def __imul__(self, other: np.typing.ArrayLike): return self._inplace_operation(np.multiply, self, other)
-    def __imatmul__(self, other: np.typing.ArrayLike): return self._inplace_operation(np.matmul, self, other)
-    def __ipow__(self, other: np.typing.ArrayLike): return self._inplace_operation(np.pow, self, other)
+    def __inplace_operation(func, self, other): return func(self, other)
+    def __iadd__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.add, self, other)
+    def __isub__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.subtract, self, other)
+    def __imul__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.multiply, self, other)
+    def __imatmul__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.matmul, self, other)
+    def __itruediv__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.divide, self, other)
+    def __ifloordiv__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.floor_divide, self, other)
+    def __imod__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.mod, self, other)
+    def __ipow__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.pow, self, other)
+    def __ilshift__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.left_shift, self, other)
+    def __irshift__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.right_shift, self, other)
+    def __iand__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.bitwise_and, self, other)
+    def __ixor__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.bitwise_xor, self, other)
+    def __ior__(self, other: np.typing.ArrayLike): return self.__inplace_operation(np.bitwise_or, self, other)
+
     
     @property
     def real(self): return self.__record(func=np.real, method='__call__', inputs=(self,), kwargs={})

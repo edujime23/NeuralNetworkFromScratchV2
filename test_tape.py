@@ -151,7 +151,7 @@ with GradientTape() as tape:
     tape.watch(x)  # Watch x for gradient calculation
     tape.watch(y)  # Watch y for gradient calculation
     z = func(x, y)
-
+ 
 print("Output of func:", z)
 
 # Compute the gradients of z with respect to x and y

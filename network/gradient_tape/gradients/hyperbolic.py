@@ -4,59 +4,118 @@ from .util import ensure_shape
 
 class HyperbolicGradients:
     @staticmethod
-    def sinh(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def sinh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         inp = inputs[0]
-        return [ensure_shape(
-            grad_output * np.cosh(np.conjugate(inp)), 
-            inp.shape if hasattr(inp, 'shape') else ()
-        )]
 
-    @staticmethod
-    def cosh(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        inp = inputs[0]
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = grad_output_h * np.cosh(np.conjugate(inp))
+        grad_ah = grad_output_ah * np.cosh(inp)
+
         return [
-            ensure_shape(
-                grad_output * np.sinh(np.conjugate(inp)), 
-                inp.shape if hasattr(inp, 'shape') else ()
-            )
+            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
         ]
-        
+
     @staticmethod
-    def tanh(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def cosh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         inp = inputs[0]
-        tanh_conj_inp = np.tanh(np.conjugate(inp))
-        return [ensure_shape(grad_output * (1 - tanh_conj_inp ** 2), inp.shape if hasattr(inp, 'shape') else ())]
-    
-    @staticmethod
-    def arcsinh(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
-        x = inputs[0]
-        
-        # Derivative of arcsinh(x) is 1 / sqrt(x^2 + 1)
-        grad = grad_output / np.sqrt(x**2 + 1)
 
-        # Ensure the gradient has the same shape as the input x
-        return [ensure_shape(grad, x.shape)]
-    
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        grad_h = grad_output_h * np.sinh(np.conjugate(inp))
+        grad_ah = grad_output_ah * np.sinh(inp)
+
+        return [
+            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
+        ]
+
     @staticmethod
-    def arccosh(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def tanh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        inp = inputs[0]
+
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(inp)
+
+        tanh_conj = np.tanh(np.conjugate(inp))
+        tanh_val = np.tanh(inp)
+
+        grad_h = grad_output_h * (1 - tanh_conj ** 2)
+        grad_ah = grad_output_ah * (1 - tanh_val ** 2)
+
+        return [
+            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
+        ]
+
+    @staticmethod
+    def arcsinh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         x = inputs[0]
 
-        # Ensure input is in the valid domain for real values (x >= 1)
-        if np.any(np.abs(x) < 1):
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        denom_h = np.sqrt(np.conjugate(x)**2 + 1)
+        denom_ah = np.sqrt(x**2 + 1)
+
+        grad_h = grad_output_h / denom_h
+        grad_ah = grad_output_ah / denom_ah
+
+        return [
+            (ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))
+        ]
+
+    @staticmethod
+    def arccosh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+        x = inputs[0]
+
+        if np.isrealobj(x) and np.any(np.abs(x) < 1):
             raise ValueError("Input to arccosh must be >= 1 for real values.")
-        
-        # Derivative of arccosh(x) is 1 / sqrt(x^2 - 1)
-        grad = grad_output / np.sqrt(x**2 - 1)
 
-        # Ensure the gradient has the same shape as the input x
-        return [ensure_shape(grad, x.shape)]
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        denom_h = np.sqrt(np.conjugate(x)**2 - 1)
+        denom_ah = np.sqrt(x**2 - 1)
+
+        grad_h = grad_output_h / denom_h
+        grad_ah = grad_output_ah / denom_ah
+
+        return [
+            (ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))
+        ]
 
     @staticmethod
-    def arctanh(grad_output: np.typing.NDArray[Any], inputs: Tuple[(np.typing.NDArray[Any], ...)]):
+    def arctanh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
         x = inputs[0]
-        
-        # Derivative of arctanh(x) is 1 / (1 - x^2)
-        grad = grad_output / (1 - x**2)
 
-        # Ensure the gradient has the same shape as the input x
-        return [ensure_shape(grad, x.shape)]
+        if isinstance(grad_output, tuple):
+            grad_output_h, grad_output_ah = grad_output
+        else:
+            grad_output_h = grad_output
+            grad_output_ah = np.zeros_like(x)
+
+        denom_h = 1 - np.conjugate(x)**2
+        denom_ah = 1 - x**2
+
+        grad_h = grad_output_h / denom_h
+        grad_ah = grad_output_ah / denom_ah
+
+        return [
+            (ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))
+        ]
