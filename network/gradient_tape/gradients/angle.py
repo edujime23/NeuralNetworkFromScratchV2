@@ -1,6 +1,5 @@
 from typing import Tuple, Any
 import numpy as np
-from .util import ensure_shape
 
 class AngleGradients:
     @staticmethod
@@ -17,7 +16,7 @@ class AngleGradients:
         grad_h = grad_output_h * scale
         grad_ah = grad_output_ah * scale
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def radians(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -33,7 +32,7 @@ class AngleGradients:
         grad_h = grad_output_h * scale
         grad_ah = grad_output_ah * scale
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def deg2rad(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -49,7 +48,7 @@ class AngleGradients:
         grad_h = grad_output_h * scale
         grad_ah = grad_output_ah * scale
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def rad2deg(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -65,7 +64,7 @@ class AngleGradients:
         grad_h = grad_output_h * scale
         grad_ah = grad_output_ah * scale
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def angle(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -81,4 +80,4 @@ class AngleGradients:
         grad_h = grad_output_h * (1j * x / abs_x_squared)
         grad_ah = grad_output_ah * (-1j * np.conj(x) / abs_x_squared)
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]

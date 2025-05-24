@@ -1,6 +1,5 @@
 from typing import Tuple, Any
 import numpy as np
-from .util import ensure_shape
 
 class ExponentialGradients:
     @staticmethod
@@ -16,9 +15,7 @@ class ExponentialGradients:
         grad_h = grad_output_h * np.exp(np.conjugate(inp))
         grad_ah = grad_output_ah * np.exp(inp)
 
-        return [
-            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def exp2(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -33,9 +30,7 @@ class ExponentialGradients:
         grad_h = grad_output_h * np.log(2) * 2**np.conjugate(inp)
         grad_ah = grad_output_ah * np.log(2) * 2**inp
 
-        return [
-            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def expm1(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -50,6 +45,4 @@ class ExponentialGradients:
         grad_h = grad_output_h * np.exp(np.conjugate(inp))
         grad_ah = grad_output_ah * np.exp(inp)
 
-        return [
-            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
-        ]
+        return [(grad_h, grad_ah)]

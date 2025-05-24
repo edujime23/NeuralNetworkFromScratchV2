@@ -1,6 +1,5 @@
-from typing import Tuple, Any
+from typing import Tuple
 import numpy as np
-from .util import ensure_shape
 
 class ShapeGradients:
     @staticmethod
@@ -19,4 +18,4 @@ class ShapeGradients:
         grad_h = grad_output_h.reshape(np.shape(x))
         grad_ah = grad_output_ah.reshape(np.shape(x))
 
-        return [(ensure_shape(grad_h, np.shape(x)), ensure_shape(grad_ah, np.shape(x)))]
+        return [(grad_h, grad_ah)]

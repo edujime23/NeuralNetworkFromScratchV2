@@ -1,6 +1,5 @@
 from typing import Optional, Tuple, Any, Union, List
 import numpy as np
-from .util import ensure_shape
 import warnings
 
 class AggregationGradients:
@@ -21,7 +20,7 @@ class AggregationGradients:
         grad_h = np.broadcast_to(grad_output_h, inp.shape)
         grad_ah = np.broadcast_to(grad_output_ah, inp.shape)
 
-        return [(ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def mean(
@@ -48,8 +47,8 @@ class AggregationGradients:
                 grad_output_h = np.expand_dims(grad_output_h, axes)
                 grad_output_ah = np.expand_dims(grad_output_ah, axes)
 
-        grad_h = ensure_shape(grad_output_h, shape) / count
-        grad_ah = ensure_shape(grad_output_ah, shape) / count
+        grad_h = grad_output_h / count
+        grad_ah = grad_output_ah / count
 
         return [(grad_h, grad_ah)]
 
@@ -81,7 +80,7 @@ class AggregationGradients:
             grad_h = np.conj(grad_h)
             grad_ah = np.conj(grad_ah)
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def prod(
@@ -105,7 +104,7 @@ class AggregationGradients:
         grad_h = grad_output_h * prod_conj_broadcasted / (np.conjugate(inp) + eps)
         grad_ah = grad_output_ah * prod_conj_broadcasted / (np.conjugate(inp) + eps)
 
-        return [(ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def max(
@@ -135,7 +134,7 @@ class AggregationGradients:
         grad_h = grad_output_h * mask / (num_max + np.finfo(grad_output_h.dtype).eps)
         grad_ah = grad_output_ah * mask / (num_max + np.finfo(grad_output_ah.dtype).eps)
 
-        return [(ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def maximum(
@@ -185,8 +184,8 @@ class AggregationGradients:
                 grad_b_ah = np.sum(grad_b_ah, axis=axis)
 
         return [
-            (ensure_shape(grad_a_h, a.shape), ensure_shape(grad_a_ah, a.shape)),
-            (ensure_shape(grad_b_h, b.shape), ensure_shape(grad_b_ah, b.shape))
+            (grad_a_h, grad_a_ah),
+            (grad_b_h, grad_b_ah)
         ]
 
     @staticmethod
@@ -217,7 +216,7 @@ class AggregationGradients:
         grad_h = grad_output_h * mask / (num_min + np.finfo(grad_output_h.dtype).eps)
         grad_ah = grad_output_ah * mask / (num_min + np.finfo(grad_output_ah.dtype).eps)
 
-        return [(ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def minimum(
@@ -267,8 +266,8 @@ class AggregationGradients:
                 grad_b_ah = np.sum(grad_b_ah, axis=axis)
 
         return [
-            (ensure_shape(grad_a_h, a.shape), ensure_shape(grad_a_ah, a.shape)),
-            (ensure_shape(grad_b_h, b.shape), ensure_shape(grad_b_ah, b.shape))
+            (grad_a_h, grad_a_ah),
+            (grad_b_h, grad_b_ah)
         ]
     
     @staticmethod
@@ -297,7 +296,7 @@ class AggregationGradients:
             grad_h = np.conj(grad_h)
             grad_ah = np.conj(grad_ah)
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def nanstd(
@@ -333,7 +332,7 @@ class AggregationGradients:
             grad_h = np.conj(grad_h)
             grad_ah = np.conj(grad_ah)
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def var(
@@ -359,7 +358,7 @@ class AggregationGradients:
             grad_h = np.conj(grad_h)
             grad_ah = np.conj(grad_ah)
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def nanvar(
@@ -388,4 +387,4 @@ class AggregationGradients:
             grad_h = np.conj(grad_h)
             grad_ah = np.conj(grad_ah)
 
-        return [(ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))]
+        return [(grad_h, grad_ah)]

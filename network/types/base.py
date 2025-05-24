@@ -6,23 +6,14 @@ from ..gradient_tape.gradient_tape import GradientTape
 class BaseType(np.ndarray):
     __name = None
     def __new__(cls, value: Optional[Union[np.typing.NDArray, np.number]], shape: Optional[Tuple[int]] = None, dtype: Optional[np.typing.DTypeLike] = None, name: Optional[str] = None):
-        value = np.asarray(value)
-        
-        shape = shape or value.shape
-        dtype = dtype or value.dtype 
-            
-        obj = np.asarray(np.zeros(shape, dtype)).view(cls)
-            
-        if np.isscalar(value):
-            obj.fill(value)
-        else:
-            value_array = np.asarray(value).astype(dtype)
-            if value_array.shape != shape:
-                raise ValueError(f"Value shape {value_array.shape} does not match expected shape {shape}")
-            obj[...] = value_array
-            
-        obj.__name = name
+        arr = np.asarray(value, dtype=dtype)
+        shape = shape or arr.shape
 
+        if arr.shape != shape:
+            raise ValueError(f"Shape mismatch: got {arr.shape}, expected {shape}")
+
+        obj = arr.view(cls)
+        obj.__name = name
         return obj
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):

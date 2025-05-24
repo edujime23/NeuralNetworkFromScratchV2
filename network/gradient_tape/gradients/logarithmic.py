@@ -1,12 +1,11 @@
 from typing import Tuple, Any
 import warnings
 import numpy as np
-from .util import ensure_shape
 
 class LogarithmicGradients:
     @staticmethod
     def log(
-        grad_output: Any,  # np.ndarray or tuple (h, ah)
+        grad_output: Any,
         inputs: Tuple[np.ndarray, ...]
     ):
         inp = inputs[0]
@@ -20,9 +19,7 @@ class LogarithmicGradients:
         grad_inp_h = grad_output_h / (np.conjugate(inp) + np.finfo(inp.dtype).eps)
         grad_inp_ah = grad_output_ah / (inp + np.finfo(inp.dtype).eps)
 
-        return [
-            (ensure_shape(grad_inp_h, np.shape(inp)), ensure_shape(grad_inp_ah, np.shape(inp)))
-        ]
+        return [(grad_inp_h, grad_inp_ah)]
 
     @staticmethod
     def log2(
@@ -43,9 +40,7 @@ class LogarithmicGradients:
         grad_inp_h = grad_output_h / denom_h
         grad_inp_ah = grad_output_ah / denom_ah
 
-        return [
-            (ensure_shape(grad_inp_h, np.shape(inp)), ensure_shape(grad_inp_ah, np.shape(inp)))
-        ]
+        return [(grad_inp_h, grad_inp_ah)]
 
     @staticmethod
     def log10(
@@ -66,9 +61,7 @@ class LogarithmicGradients:
         grad_inp_h = grad_output_h / denom_h
         grad_inp_ah = grad_output_ah / denom_ah
 
-        return [
-            (ensure_shape(grad_inp_h, np.shape(inp)), ensure_shape(grad_inp_ah, np.shape(inp)))
-        ]
+        return [(grad_inp_h, grad_inp_ah)]
 
     @staticmethod
     def log1p(
@@ -86,9 +79,7 @@ class LogarithmicGradients:
         grad_inp_h = grad_output_h / (np.conjugate(inp) + 1)
         grad_inp_ah = grad_output_ah / (inp + 1)
 
-        return [
-            (ensure_shape(grad_inp_h, np.shape(inp)), ensure_shape(grad_inp_ah, np.shape(inp)))
-        ]
+        return [(grad_inp_h, grad_inp_ah)]
 
     @staticmethod
     def logaddexp(
@@ -122,16 +113,13 @@ class LogarithmicGradients:
             grad_b_h = grad_output_h * exp_b / denom
 
             return [
-                (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(zero_a_ah, np.shape(a))),
-                (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(zero_b_ah, np.shape(b)))
+                (grad_a_h, zero_a_ah),
+                (grad_b_h, zero_b_ah)
             ]
         else:
             grad_a = grad_output * exp_a / denom
             grad_b = grad_output * exp_b / denom
-            return [
-                ensure_shape(grad_a, np.shape(a)),
-                ensure_shape(grad_b, np.shape(b))
-            ]
+            return [grad_a, grad_b]
 
     @staticmethod
     def logaddexp2(
@@ -166,13 +154,10 @@ class LogarithmicGradients:
             grad_b_h = grad_output_h * exp2_b / denom * np.log(2)
 
             return [
-                (ensure_shape(grad_a_h, np.shape(a)), ensure_shape(zero_a_ah, np.shape(a))),
-                (ensure_shape(grad_b_h, np.shape(b)), ensure_shape(zero_b_ah, np.shape(b)))
+                (grad_a_h, zero_a_ah),
+                (grad_b_h, zero_b_ah)
             ]
         else:
             grad_a = grad_output * exp2_a / denom * np.log(2)
             grad_b = grad_output * exp2_b / denom * np.log(2)
-            return [
-                ensure_shape(grad_a, np.shape(a)),
-                ensure_shape(grad_b, np.shape(b))
-            ]
+            return [grad_a, grad_b]

@@ -12,7 +12,11 @@ opt = AdamOptimizer(learning_rate=1e-3)
 steps = int(1e4)
 
 def func(x):
-    return x
+    return np.cos(
+        np.sin(
+            np.tan(x)
+        )
+    )
 
 def losss(x):
     return np.mean(np.sqrt(np.conj(target - x) * (target - x)))
@@ -39,5 +43,7 @@ def run_optimization():
             break
 
     print(f"\nFinal parameter value after {steps} steps: w = {w}")
+    print(f"Final loss value after {steps} steps: loss = {loss}")
+    print(f"Final Function value after {steps} steps: out = {out}")
 
 run_optimization()

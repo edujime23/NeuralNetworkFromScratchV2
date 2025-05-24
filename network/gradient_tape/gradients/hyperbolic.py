@@ -1,6 +1,5 @@
 from typing import Tuple, Any
 import numpy as np
-from .util import ensure_shape
 
 class HyperbolicGradients:
     @staticmethod
@@ -16,9 +15,7 @@ class HyperbolicGradients:
         grad_h = grad_output_h * np.cosh(np.conjugate(inp))
         grad_ah = grad_output_ah * np.cosh(inp)
 
-        return [
-            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def cosh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -33,9 +30,7 @@ class HyperbolicGradients:
         grad_h = grad_output_h * np.sinh(np.conjugate(inp))
         grad_ah = grad_output_ah * np.sinh(inp)
 
-        return [
-            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def tanh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -53,9 +48,7 @@ class HyperbolicGradients:
         grad_h = grad_output_h * (1 - tanh_conj ** 2)
         grad_ah = grad_output_ah * (1 - tanh_val ** 2)
 
-        return [
-            (ensure_shape(grad_h, inp.shape), ensure_shape(grad_ah, inp.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def arcsinh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -73,9 +66,7 @@ class HyperbolicGradients:
         grad_h = grad_output_h / denom_h
         grad_ah = grad_output_ah / denom_ah
 
-        return [
-            (ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def arccosh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -96,9 +87,7 @@ class HyperbolicGradients:
         grad_h = grad_output_h / denom_h
         grad_ah = grad_output_ah / denom_ah
 
-        return [
-            (ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))
-        ]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def arctanh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
@@ -116,6 +105,4 @@ class HyperbolicGradients:
         grad_h = grad_output_h / denom_h
         grad_ah = grad_output_ah / denom_ah
 
-        return [
-            (ensure_shape(grad_h, x.shape), ensure_shape(grad_ah, x.shape))
-        ]
+        return [(grad_h, grad_ah)]

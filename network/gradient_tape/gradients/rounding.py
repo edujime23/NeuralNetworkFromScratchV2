@@ -1,6 +1,5 @@
 from typing import Tuple
 import numpy as np
-from .util import ensure_shape
 
 class RoundingGradients:
     @staticmethod
@@ -19,7 +18,7 @@ class RoundingGradients:
         grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
         grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
 
-        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def ceil(
@@ -37,7 +36,7 @@ class RoundingGradients:
         grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
         grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
 
-        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def round(
@@ -55,7 +54,7 @@ class RoundingGradients:
         grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
         grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
 
-        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
+        return [(grad_h, grad_ah)]
 
     @staticmethod
     def trunc(
@@ -73,4 +72,4 @@ class RoundingGradients:
         grad_h = np.zeros_like(inp, dtype=grad_output_h.dtype)
         grad_ah = np.zeros_like(inp, dtype=grad_output_ah.dtype)
 
-        return [(ensure_shape(grad_h, np.shape(inp)), ensure_shape(grad_ah, np.shape(inp)))]
+        return [(grad_h, grad_ah)]
