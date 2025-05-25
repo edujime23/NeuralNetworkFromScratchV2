@@ -3,6 +3,8 @@ from network.optimizers import AdamOptimizer
 from network.types import Variable
 import numpy as np
 
+np.random.seed(69)
+
 target = np.array([1 + -1j], dtype=np.complex128)
 
 w = Variable(value=[0.0 + 0.0j], trainable=True, name='w', initializer='xavier_uniform')
@@ -12,11 +14,11 @@ opt = AdamOptimizer(learning_rate=1e-3)
 steps = int(1e4)
 
 def func(x):
-    return np.cos(
-        np.sin(
-            np.tan(x)
-        )
-    )
+    res = np.conj(x + 3)
+    res += x - np.log(x)
+    res *= np.exp(x)
+    res -= np.sin(x)
+    return res
 
 def losss(x):
     return np.mean(np.sqrt(np.conj(target - x) * (target - x)))
