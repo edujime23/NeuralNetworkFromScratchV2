@@ -5,7 +5,7 @@ from ..layers import Layer
 from ..types import Variable
 from ..metrics import Metric
 from ..initializers import Initializer
-from ..gradient_tape import GradientTape
+from ..tape import GradientTape
 
 class Model:
     """

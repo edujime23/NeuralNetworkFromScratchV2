@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Tuple, Callable, Dict, List, Any
-from ..gradient_tape import GradientTape
+from ..tape import GradientTape
 
 class Optimizer:
     """

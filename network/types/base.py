@@ -1,7 +1,7 @@
 import warnings
 import numpy as np
 from typing import Tuple, Union, Callable, Dict, Optional
-from ..gradient_tape.gradient_tape import GradientTape
+from ..tape import GradientTape
 
 class BaseType(np.ndarray):
     __name = None

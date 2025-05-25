@@ -1,4 +1,4 @@
-from network.gradient_tape import GradientTape
+from network.tape import GradientTape, GRADIENTS
 from network.optimizers import AdamOptimizer
 from network.types import Variable
 import numpy as np

@@ -9,7 +9,7 @@ from .rounding import RoundingGradients
 from .shape import ShapeGradients
 from .special import SpecialGradients
 from .trigonometric import TrigonometricGradients
-from .numerical import numerical_derivative
+from .numerical import numerical_derivative, WirtingerDifferentiator, DerivativeConfig
 
 GRADIENTS: dict[str, object] = {}
 

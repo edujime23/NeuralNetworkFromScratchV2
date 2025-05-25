@@ -6,7 +6,7 @@ from ..initializers import Initializer
 from ..types import Variable
 from ..metrics import Metric
 from ..optimizers import Optimizer
-from ..gradient_tape import GradientTape
+from ..tape import GradientTape
 
 class Sequential(Model):
     def __init__(self, layers: Optional[List[Layer]] = None, name: Optional[str] = None):

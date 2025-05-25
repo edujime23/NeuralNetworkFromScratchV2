@@ -1,5 +1,6 @@
 import numpy as np
-from .gradients import GRADIENTS, numerical_derivative
+import multiprocessing as _mp
+from .funcs import GRADIENTS, numerical_derivative
 from typing import Any, List, Callable, Tuple, Dict, Union, Optional
 import warnings
 from dataclasses import dataclass, field
@@ -12,7 +13,8 @@ class OpNode:
     kwargs: Dict[str, Any]
     result: np.ndarray
     parents: List['OpNode'] = field(default_factory=list)
-    creation_index: int = 0  # Helps us keep creation order
+    creation_index: int = 0      # Helps us keep creation order
+    last_visited: int = 0        # Visit‐stamp for DFS marking
 
     def __repr__(self):
         return (
@@ -31,6 +33,7 @@ class Gradient:
 class GradientTape:
     _GRADIENTS_TAPES: List['GradientTape'] = []
     _primitive_registry: Dict[str, Callable] = {}
+    _visit_stamp_counter: int = 1  # For marking ancestors without a Python set
 
     def __init__(
         self,
@@ -52,6 +55,10 @@ class GradientTape:
         self._nodes_in_order: List[OpNode] = []
         self._next_creation_index = 0
 
+        # Reusable seeds
+        self._ones_seed: Optional[np.ndarray] = None
+        self._zeros_seed: Optional[np.ndarray] = None
+
         GradientTape._GRADIENTS_TAPES.append(self)
 
     def __enter__(self) -> 'GradientTape':
@@ -65,6 +72,10 @@ class GradientTape:
         # Reset the node list & index counter
         self._nodes_in_order.clear()
         self._next_creation_index = 0
+
+        # Reset seeds
+        self._ones_seed = None
+        self._zeros_seed = None
         return self
 
     def __exit__(self, *args, **kwargs) -> None:
@@ -147,21 +158,41 @@ class GradientTape:
         kwargs: Dict[str, Any],
         result: np.ndarray
     ) -> None:
-        """Creates an OpNode and links it to its parents in the computation graph."""
+        """
+        Creates an OpNode and links it to its parents in the computation graph.
+        Also attaches the newly created node directly to the array, so we can
+        skip dictionary lookups later.
+        """
+        # Skip anything that is not a plain ndarray:
+        if not isinstance(result, np.ndarray):
+            return
+
         idx = self._next_creation_index
         self._next_creation_index += 1
 
-        node = OpNode(func=func, method=method, inputs=inputs, kwargs=kwargs, result=result, creation_index=idx)
+        node = OpNode(
+            func=func,
+            method=method,
+            inputs=inputs,
+            kwargs=kwargs,
+            result=result,
+            creation_index=idx
+        )
 
-        # Link parents
+        # Link parents (we rely on result_to_node for initial construction)
         for inp in inputs:
-            parent = self.result_to_node.get(id(inp))
+            parent = getattr(inp, "_tape_node", None)
+            if parent is None:
+                parent = self.result_to_node.get(id(inp))
             if parent is not None:
                 node.parents.append(parent)
 
         # Register this node
         self.result_to_node[id(result)] = node
-        self._nodes_in_order.append(node)  # ALSO append to our flat list
+        self._nodes_in_order.append(node)
+
+        # Attach node to array for O(1) access
+        setattr(result, "_tape_node", node)
 
     def record(
         self,
@@ -169,9 +200,13 @@ class GradientTape:
         method: str,
         inputs: Tuple[Any, ...],
         kwargs: Dict[str, Any],
-        result: np.ndarray
+        result: Any
     ) -> None:
         """Records an operation in the gradient tape if any input is watched."""
+        # Skip if “result” isn’t a NumPy array
+        if not isinstance(result, np.ndarray):
+            return
+        # Skip if stop_gradient was set
         if hasattr(result, "_stop_gradient") and getattr(result, "_stop_gradient", False):
             return
 
@@ -198,19 +233,16 @@ class GradientTape:
         if grad.ndim == 0:
             return np.full(shape, grad.item(), dtype=grad.dtype)
 
-        reduce_axes = []
+        # Inline unbroadcast logic for speed
         ndim_diff = len(grad.shape) - len(shape)
-        if ndim_diff > 0:
-            reduce_axes.extend(range(ndim_diff))
-
+        axes_to_sum = list(range(ndim_diff)) if ndim_diff > 0 else []
         for i, dim_grad in enumerate(grad.shape[::-1]):
             if i < len(shape) and shape[::-1][i] == 1 and dim_grad > 1:
                 axis_to_reduce = len(grad.shape) - 1 - i
-                reduce_axes.append(axis_to_reduce)
+                axes_to_sum.append(axis_to_reduce)
 
-        if reduce_axes:
-            grad = np.sum(grad, axis=tuple(reduce_axes), keepdims=True)
-
+        if axes_to_sum:
+            grad = grad.sum(axis=tuple(axes_to_sum), keepdims=True)
         return grad.reshape(shape)
 
     def _compute_raw_gradients(
@@ -301,7 +333,6 @@ class GradientTape:
 
         hook = self._hooks.get(id(inp))
         if hook is not None:
-            # Only modify holomorphic part via hook, as before
             entry.holomorphic = hook(entry.holomorphic)
 
     def _gradient_recursive(self, node: OpNode, grad_res: Gradient) -> None:
@@ -331,30 +362,34 @@ class GradientTape:
     def _backpropagate(self, target: np.ndarray) -> None:
         """
         Backpropagate from `target` by:
-          1. Marking all ancestors of target (via DFS),
+          1. Marking all ancestors of target (via visit‐stamp DFS),
           2. Iterating reversed(self._nodes_in_order) and only processing marked nodes.
         """
-        # 1) Mark ancestors:
-        visited = set()
-        root_node = self.result_to_node.get(id(target))
+        root_node = getattr(target, "_tape_node", None)
+        if root_node is None:
+            root_node = self.result_to_node.get(id(target))
         if root_node is None:
             return
+
+        # 1) Mark ancestors using visit-stamp
+        stamp = GradientTape._visit_stamp_counter
+        GradientTape._visit_stamp_counter += 1
 
         stack = [root_node]
         while stack:
             n = stack.pop()
-            if id(n) in visited:
+            if n.last_visited == stamp:
                 continue
-            visited.add(id(n))
-            stack.extend(p for p in n.parents if id(p) not in visited)
-        # 2) Iterate all nodes in reverse creation order—only process if visited
+            n.last_visited = stamp
+            stack.extend(p for p in n.parents if p.last_visited != stamp)
+        # 2) Iterate all nodes in reverse creation order—only process if last_visited == stamp
         for node in reversed(self._nodes_in_order):
-            nid = id(node)
-            if nid not in visited:
+            if node.last_visited != stamp:
                 continue
-            if id(node.result) not in self.grads:
+            res_id = id(node.result)
+            if res_id not in self.grads:
                 continue
-            grad_res = self.grads[id(node.result)]
+            grad_res = self.grads[res_id]
             self._gradient_recursive(node, grad_res)
 
     def _get_final_gradient_for_source(
@@ -386,6 +421,7 @@ class GradientTape:
         gah_init = np.zeros_like(output_gradient_seed)
 
         self.grads.clear()
+        # Pre‐allocate gradients for the target (and any watched sources will be re‐initialized in `gradient` if necessary)
         self.grads[id(target)] = Gradient(holomorphic=gh_init, antiholomorphic=gah_init)
         self._backpropagate(target)
         return self._get_final_gradient_for_source(source, unconnected_gradients)
@@ -396,39 +432,60 @@ class GradientTape:
         sources: Union[np.ndarray, List[np.ndarray], Tuple[np.ndarray, ...]],
         output_gradients=None,
         unconnected_gradients="none"
-    ) -> List[Optional[Tuple[np.ndarray, np.ndarray]]]:
+    ) -> Union[Optional[Tuple[np.ndarray, np.ndarray]], List[Optional[Tuple[np.ndarray, np.ndarray]]]]:
         """Computes the gradient of target with respect to sources."""
         if self._used and not self.persistent:
             raise RuntimeError("GradientTape has already been used and is not persistent.")
         self._used = True
 
+        # Normalize sources_list
         if isinstance(sources, (list, tuple)):
             sources_list = list(sources)
+            return_list = True
         else:
             sources_list = [sources]
+            return_list = False
 
+        # Only keep watched sources
         sources_list = [s for s in sources_list if id(s) in self.watched]
         if not sources_list:
             if unconnected_gradients == "zero":
-                return [
+                result = [
                     (
                         np.zeros_like(s, dtype=self._get_gradient_dtype(s.dtype, self.forced_dtype)),
                         np.zeros_like(s, dtype=self._get_gradient_dtype(s.dtype, self.forced_dtype))
                     )
                     for s in sources_list
                 ]
-            return [None for _ in sources_list]
+            else:
+                result = [None for _ in sources_list]
+            return result if return_list else (result[0] if result else None)
 
+
+        # Decide on seed arrays
         if output_gradients is not None:
             if output_gradients.shape != target.shape:
                 raise ValueError("output_gradients must have same shape as target")
             gh_init = output_gradients
             gah_init = np.zeros_like(output_gradients)
         else:
-            gh_init = np.ones_like(target, dtype=self._get_gradient_dtype(target.dtype, self.forced_dtype))
-            gah_init = np.zeros_like(target, dtype=self._get_gradient_dtype(target.dtype, self.forced_dtype))
+            dtype_seed = self._get_gradient_dtype(target.dtype, self.forced_dtype)
+            if self._ones_seed is None or self._ones_seed.shape != target.shape:
+                self._ones_seed = np.ones_like(target, dtype=dtype_seed)
+            if self._zeros_seed is None or self._zeros_seed.shape != target.shape:
+                self._zeros_seed = np.zeros_like(target, dtype=dtype_seed)
+            gh_init = self._ones_seed
+            gah_init = self._zeros_seed
 
+        # Clear and pre‐allocate gradients for all watched sources
         self.grads.clear()
+        for src in sources_list:
+            dtype_src = self._get_gradient_dtype(src.dtype, self.forced_dtype)
+            self.grads[id(src)] = Gradient(
+                holomorphic=np.zeros(src.shape, dtype=dtype_src),
+                antiholomorphic=np.zeros(src.shape, dtype=dtype_src)
+            )
+        # Override the target’s gradient
         self.grads[id(target)] = Gradient(holomorphic=gh_init.copy(), antiholomorphic=gah_init.copy())
 
         self._backpropagate(target)
@@ -437,7 +494,41 @@ class GradientTape:
             self._get_final_gradient_for_source(s, unconnected_gradients)
             for s in sources_list
         ]
-        return final_gradients if len(final_gradients) > 1 else final_gradients[0]
+        return final_gradients if return_list else (final_gradients[0] if final_gradients else None)
+
+    @staticmethod
+    def _jac_row_worker(args) -> np.ndarray:
+        """Helper for multiprocessing in jacobian."""
+        (
+            target,
+            source,
+            idx,
+            shape_target,
+            shape_source,
+            output_gradients,
+            unconnected_gradients,
+            forced_dtype
+        ) = args
+
+        # Build a seed vector of shape `shape_target` with a 1 at `idx`
+        flat_t = np.zeros(shape_target, dtype=forced_dtype).reshape(-1)
+        flat_t[:] = 0
+        flat_t[idx] = 1.0
+        seed = flat_t.reshape(shape_target)
+        if output_gradients is not None:
+            seed = seed * output_gradients
+
+        # In a separate process, we need a fresh tape to compute this “row”
+        tape = GradientTape(persistent=False, watch_accessed_variables=False, dtype=forced_dtype)
+        tape.watch(source)
+        grad_pair = tape._grad_scalar_or_tensor(target, source, seed, unconnected_gradients)
+        if grad_pair is None:
+            return np.zeros(np.prod(shape_source), dtype=forced_dtype)
+
+        combined = grad_pair[0] + np.conj(grad_pair[1])
+        if np.isrealobj(combined) or np.allclose(combined.imag, 0):
+            return combined.real.reshape(-1)
+        return combined.reshape(-1)
 
     def jacobian(
         self,
@@ -446,40 +537,41 @@ class GradientTape:
         unconnected_gradients: str = "none",
         output_gradients: Optional[np.ndarray] = None
     ) -> np.ndarray:
-        """Computes the Jacobian matrix of target with respect to source."""
+        """Computes the Jacobian matrix of target with respect to source, in parallel."""
         if self._used and not self.persistent:
             raise RuntimeError("GradientTape has already been used and is not persistent.")
         self._used = True
 
         flat_t = target.reshape(-1)
         M = flat_t.shape[0]
-        jac_rows = []
+        shape_target = target.shape
+        shape_source = source.shape
+        forced_dtype = self._get_gradient_dtype(source.dtype, self.forced_dtype)
 
-        for idx in range(M):
-            seed = np.zeros_like(flat_t)
-            seed[idx] = 1.0
-            seed = seed.reshape(target.shape)
+        if output_gradients is not None and output_gradients.shape != shape_target:
+            raise ValueError("output_gradients must have same shape as target")
 
-            if output_gradients is not None:
-                if output_gradients.shape != target.shape:
-                    raise ValueError("output_gradients must have same shape as target")
-                seed = seed * output_gradients
+        # Build argument list for each row
+        args_list = [
+            (
+                target,
+                source,
+                idx,
+                shape_target,
+                shape_source,
+                output_gradients,
+                unconnected_gradients,
+                forced_dtype
+            )
+            for idx in range(M)
+        ]
 
-            grad_pair = self._grad_scalar_or_tensor(target, source, seed, unconnected_gradients)
-            store_dtype = self._get_gradient_dtype(source.dtype, self.forced_dtype)
+        # Use multiprocessing Pool to compute each “row” in parallel
+        with _mp.Pool() as pool:
+            rows = pool.map(GradientTape._jac_row_worker, args_list)
 
-            if grad_pair is None:
-                combined = np.zeros_like(source, dtype=store_dtype)
-            else:
-                combined = grad_pair[0] + np.conj(grad_pair[1])
-
-            if np.isrealobj(combined) or np.allclose(combined.imag, 0):
-                jac_rows.append(combined.real.reshape(-1))
-            else:
-                jac_rows.append(combined.reshape(-1))
-
-        mat = np.stack(jac_rows, axis=0)
-        return mat.reshape(target.shape + source.shape)
+        mat = np.stack(rows, axis=0)
+        return mat.reshape(shape_target + shape_source)
 
     def jvp(
         self,
@@ -490,18 +582,19 @@ class GradientTape:
         """Computes the Jacobian-vector product."""
         f = (lambda x: target) if isinstance(target, np.ndarray) else target
 
-        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as inner:
-            inner.watch(source)
+        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as inner_tape:
+            inner_tape.watch(source)
             y = f(source)
 
-        gy_list = inner.gradient(y, source)
-        gy_pair = gy_list[0] if gy_list else None
-        store_dtype = self._get_gradient_dtype(source.dtype, self.forced_dtype)
+        # gy_result will be Optional[Tuple[np.ndarray, np.ndarray]] because 'source' is a single np.ndarray
+        gy_result = inner_tape.gradient(y, source)
 
-        if gy_pair is None:
-            combined = np.zeros_like(source, dtype=store_dtype)
+        dtype_src = self._get_gradient_dtype(source.dtype, self.forced_dtype)
+
+        if gy_result is None:
+            combined = np.zeros_like(source, dtype=dtype_src)
         else:
-            combined = gy_pair[0] + np.conj(gy_pair[1])
+            combined = gy_result[0] + np.conj(gy_result[1])
 
         if y.ndim == 0 or y.size == 1:
             return np.sum(combined * vector)
@@ -509,12 +602,14 @@ class GradientTape:
         warnings.warn(
             "JVP for vectorial target is not implemented correctly with this approach. Returning VJP‐like result."
         )
-        vjp_list = inner.gradient(y, source, output_gradients=vector, unconnected_gradients="zero")
-        vjp_pair = vjp_list[0] if vjp_list else None
+        # For the VJP-like result, we need the gradient of y wrt source with output_gradients=vector.
+        # This is essentially the VJP.
+        vjp_result = inner_tape.gradient(y, source, output_gradients=vector, unconnected_gradients="zero")
+        # vjp_result will be Optional[Tuple[np.ndarray, np.ndarray]]
+        if vjp_result is None:
+            return np.zeros_like(source, dtype=dtype_src)
+        return vjp_result[0] + np.conj(vjp_result[1])
 
-        if vjp_pair is None:
-            return np.zeros_like(source, dtype=store_dtype)
-        return vjp_pair[0] + np.conj(vjp_pair[1])
 
     def vjp(
         self,
@@ -529,13 +624,9 @@ class GradientTape:
             tape.watch(source)
             y = f(source)
 
-        vjp_list = tape.gradient(y, source, output_gradients=vector, unconnected_gradients="zero")
-        vjp_pair = vjp_list[0] if vjp_list else None
-        store_dtype = self._get_gradient_dtype(source.dtype, self.forced_dtype)
-
-        if vjp_pair is None:
-            return np.zeros_like(source, dtype=store_dtype)
-        return vjp_pair[0] + np.conj(vjp_pair[1])
+        # vjp_result will be Optional[Tuple[np.ndarray, np.ndarray]] because 'source' is a single np.ndarray
+        vjp_result = tape.gradient(y, source, output_gradients=vector, unconnected_gradients="zero")
+        return self._get_combined_gradient_from_tape_output(vjp_result, source)
 
     def derivative(
         self,
@@ -544,19 +635,48 @@ class GradientTape:
         order: int
     ) -> np.ndarray:
         """Computes the n-th order derivative of a function."""
-        if order < 1:
+        if order < 0:
+            raise ValueError("Order must be non-negative.")
+        if order == 0:
             return f(x)
+        
+        # Recursively compute the (order-1)-th derivative.
+        # This 'inner_derivative_value' will be a np.ndarray.
+        inner_derivative_value = self.derivative(f, x, order - 1)
+
         with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as tape:
             tape.watch(x)
-            inner = self.derivative(f, x, order - 1)
+            # Compute the gradient of the (order-1)-th derivative value with respect to x.
+            # Since 'x' is a single source, tape.gradient will return Optional[Tuple[np.ndarray, np.ndarray]].
+            grad_result_pair = tape.gradient(inner_derivative_value, x)
 
-        grad_list = tape.gradient(inner, x)
-        grad_pair = grad_list[0] if grad_list else None
-        store_dtype = self._get_gradient_dtype(x.dtype, self.forced_dtype)
+        # Combine the holomorphic and anti-holomorphic parts using the helper.
+        return self._get_combined_gradient_from_tape_output(grad_result_pair, x)
+
+    # Renamed and updated helper for vjp/derivative
+    def _get_combined_gradient_from_tape_output(self, grad_output_from_tape: Union[Optional[Tuple[np.ndarray, np.ndarray]], List[Optional[Tuple[np.ndarray, np.ndarray]]]], source_tensor: np.ndarray) -> np.ndarray:
+        """
+        Helper to extract and combine holomorphic and anti-holomorphic gradients
+        from the output of the gradient method.
+        """
+        grad_pair: Optional[Tuple[np.ndarray, np.ndarray]] = None
+
+        if isinstance(grad_output_from_tape, list):
+            # If the output is a list (e.g., from multiple sources), take the first element.
+            if grad_output_from_tape:
+                grad_pair = grad_output_from_tape[0]
+        else:
+            # Otherwise, it's already the single Optional[Tuple[np.ndarray, np.ndarray]]
+            grad_pair = grad_output_from_tape
+
+        dtype_src = self._get_gradient_dtype(source_tensor.dtype, self.forced_dtype)
 
         if grad_pair is None:
-            return np.zeros_like(x, dtype=store_dtype)
-        return grad_pair[0] + np.conj(grad_pair[1])
+            # If no gradient is found, return zeros of the appropriate type and shape.
+            return np.zeros_like(source_tensor, dtype=dtype_src)
+        else:
+            # Combine holomorphic and anti-holomorphic parts.
+            return grad_pair[0] + np.conj(grad_pair[1])
 
     def hessian(self, f: Callable[[np.ndarray], np.ndarray], x: np.ndarray) -> np.ndarray:
         """Computes the Hessian matrix of a scalar-valued function."""
@@ -568,27 +688,36 @@ class GradientTape:
             g1.watch(x)
             y = f(x)
 
-        grad_f_list = g1.gradient(y, x)
-        grad_f_pair = grad_f_list[0] if grad_f_list else None
+        # grad_f_pair will be Optional[Tuple[np.ndarray, np.ndarray]]
+        grad_f_pair = g1.gradient(y, x)
 
         if not grad_f_pair:
             raise ValueError("Could not compute first gradient for Hessian calculation.")
+        # Flattened gradient
         grad_f_combined = grad_f_pair[0] + np.conj(grad_f_pair[1])
+        grad_flat = grad_f_combined.flatten()
+
+        def _hess_worker(args):
+            i, flat_grad = args
+            seed_i = np.zeros_like(flat_grad)
+            seed_i[i] = 1.0
+            seed_mat = seed_i.reshape(x.shape)
+
+            tape = GradientTape(persistent=False, watch_accessed_variables=False, dtype=hessian_dtype)
+            tape.watch(x)
+            # grad_pair_inner will be Optional[Tuple[np.ndarray, np.ndarray]]
+            grad_pair_inner = tape.gradient(f(x), x, output_gradients=seed_mat, unconnected_gradients="zero")
+            if grad_pair_inner is None:
+                return np.zeros(n, dtype=hessian_dtype)
+            combined_inner = grad_pair_inner[0] + np.conj(grad_pair_inner[1])
+            return combined_inner.reshape(-1)
+
+        args = [(i, grad_flat) for i in range(n)]
+        with _mp.Pool() as pool:
+            columns = pool.map(_hess_worker, args)
 
         for i in range(n):
-            def ith_comp_func(u):
-                with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as g2:
-                    g2.watch(u)
-                    y2 = f(u)
-                grad2_list = g2.gradient(y2, u)
-                grad2_pair = grad2_list[0] if grad2_list else None
-                if not grad2_pair:
-                    raise ValueError(f"Could not compute inner gradient for Hessian component {i}.")
-                combined_inner = grad2_pair[0] + np.conj(grad2_pair[1])
-                return combined_inner.flatten()[i]
-
-            H[:, i] = GradientTape().derivative(ith_comp_func, x.copy(), 1).flatten()
-
+            H[:, i] = columns[i]
         return H
 
     def print_graph(self, target: np.ndarray) -> None:
@@ -603,7 +732,9 @@ class GradientTape:
             for parent in node.parents:
                 _dfs(parent, indent + 1)
 
-        root = self.result_to_node.get(id(target))
+        root = getattr(target, "_tape_node", None)
+        if root is None:
+            root = self.result_to_node.get(id(target))
         _dfs(root)
 
     def _calculate_numerical_gradient(self, f: Callable[[np.ndarray], np.ndarray], x: np.ndarray, eps: float) -> np.ndarray:
@@ -632,11 +763,12 @@ class GradientTape:
             g.watch(x)
             y = f(x)
 
-        grad_list = g.gradient(y, x)
-        grad_pair = grad_list[0] if grad_list else None
+        # grad_pair will be Optional[Tuple[np.ndarray, np.ndarray]]
+        grad_pair = g.gradient(y, x)
         if not grad_pair:
             raise ValueError("Analytical gradient could not be computed for check_gradient.")
 
         analytical_grad = grad_pair[0] + np.conj(grad_pair[1])
         numerical_grad = self._calculate_numerical_gradient(f, x, eps)
         return np.max(np.abs(numerical_grad - analytical_grad))
+
