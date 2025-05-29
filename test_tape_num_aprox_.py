@@ -15,7 +15,6 @@ def func(u):
 with GradientTape() as tape:
     tape.watch(x, y)
     z = func(x)
-    z += func(y)
 
 dx, dy = tape.gradient(z, [x, y])
 print("∂z/∂x =", np.round(dx, 3))

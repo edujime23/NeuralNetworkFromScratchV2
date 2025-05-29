@@ -1,22 +1,37 @@
-import numpy as np
-import multiprocessing as _mp
-from .funcs import GRADIENTS, numerical_derivative
-from typing import Any, List, Callable, Tuple, Dict, Union, Optional
-import warnings
+# network/tape/gradient/gradient_tape.py
+
+from __future__ import annotations
+from typing import Any, Callable, Iterable
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+import numpy as np
+import multiprocessing as mp
+import warnings
+
+# Assuming these are defined elsewhere in your project
+from .funcs import GRADIENTS, numerical_derivative
+from ...types import Tensor, Variable
+
 
 @dataclass
 class OpNode:
-    func: Callable
+    """
+    Represents a node in the computation graph, recording a primitive operation.
+    
+    Stores information about the function executed, its inputs, keyword arguments,
+    and the resulting array. Maintains references to parent nodes for backpropagation.
+    """
+    func: Callable[..., Any]
     method: str
-    inputs: Tuple[np.ndarray, ...]
-    kwargs: Dict[str, Any]
-    result: np.ndarray
-    parents: List['OpNode'] = field(default_factory=list)
-    creation_index: int = 0      # Helps us keep creation order
-    last_visited: int = 0        # Visit‐stamp for DFS marking
+    inputs: tuple[Tensor, ...]
+    kwargs: dict[str, Any]
+    result: Tensor
+    parents: list[OpNode] = field(default_factory=list)
+    creation_index: int = 0
+    last_visited: int = 0
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Provides a concise string representation of the OpNode."""
         return (
             f"OpNode(func={self.func.__name__}, "
             f"result_id={id(self.result)}, "
@@ -24,113 +39,127 @@ class OpNode:
             f"dtype={self.result.dtype})"
         )
 
+
 @dataclass
 class Gradient:
-    holomorphic: np.ndarray
-    antiholomorphic: np.ndarray
+    """
+    Stores holomorphic and anti-holomorphic components of a gradient.
+    Essential for handling complex-differentiable operations.
+    """
+    holomorphic: Tensor
+    antiholomorphic: Tensor
 
 
 class GradientTape:
-    _GRADIENTS_TAPES: List['GradientTape'] = []
-    _primitive_registry: Dict[str, Callable] = {}
-    _visit_stamp_counter: int = 1  # For marking ancestors without a Python set
+    """
+    Records operations on Tensors/Variables to enable automatic differentiation.
+    
+    Builds a computation graph and performs reverse-mode gradient accumulation.
+    Supports complex differentiation via holomorphic/anti-holomorphic components.
+    """
+
+    _GRADIENTS_TAPES: list[GradientTape] = []
+    _primitive_registry: dict[str, None] = {}
+    _visit_stamp_counter: int = 1
 
     def __init__(
         self,
         persistent: bool = False,
         watch_accessed_variables: bool = False,
-        dtype: Optional[np.dtype] = None,
+        dtype: np.dtype | None = None,
     ) -> None:
-        # Original fields
-        self.result_to_node: Dict[int, OpNode] = {}
-        self.grads: Dict[int, Gradient] = {}
+        """
+        Initialize a new gradient tape.
+        
+        Args:
+            persistent: If True, allows multiple gradient computations
+            watch_accessed_variables: If True, watches variables when accessed
+            dtype: Force gradient computations to use specific dtype
+        """
+        self.result_to_node: dict[int, OpNode] = {}
+        self.grads: dict[int, Gradient] = {}
         self.watched: set[int] = set()
+
         self.persistent = persistent
         self._used = False
         self.watch_on_read = watch_accessed_variables
         self.forced_dtype = dtype
-        self._hooks: Dict[int, Callable[[np.ndarray], np.ndarray]] = {}
+        self._hooks: dict[int, Callable[[Tensor], Tensor]] = {}
 
-        # NEW: keep a flat list of OpNodes in creation order
-        self._nodes_in_order: List[OpNode] = []
+        self._nodes_in_order: list[OpNode] = []
         self._next_creation_index = 0
 
-        # Reusable seeds
-        self._ones_seed: Optional[np.ndarray] = None
-        self._zeros_seed: Optional[np.ndarray] = None
+        # Cache for gradient seeds to avoid repeated allocation
+        self._ones_seed: Tensor | None = None
+        self._zeros_seed: Tensor | None = None
 
         GradientTape._GRADIENTS_TAPES.append(self)
 
-    def __enter__(self) -> 'GradientTape':
-        """Context manager entry: Clears tape state for a new computation."""
-        self.result_to_node.clear()
-        self.grads.clear()
-        self.watched.clear()
-        self._used = False
-        self._hooks.clear()
-
-        # Reset the node list & index counter
-        self._nodes_in_order.clear()
-        self._next_creation_index = 0
-
-        # Reset seeds
-        self._ones_seed = None
-        self._zeros_seed = None
+    def __enter__(self) -> GradientTape:
+        """Context manager entry - reset state for non-persistent tapes."""
+        if not self.persistent:
+            self.result_to_node.clear()
+            self.grads.clear()
+            self.watched.clear()
+            self._used = False
+            self._hooks.clear()
+            self._nodes_in_order.clear()
+            self._next_creation_index = 0
+            self._ones_seed = None
+            self._zeros_seed = None
         return self
 
-    def __exit__(self, *args, **kwargs) -> None:
-        """Context manager exit: Deregisters tape if not persistent."""
+    def __exit__(self, *args: Any, **kwargs: Any) -> None:
+        """Context manager exit - cleanup for non-persistent tapes."""
         if not self.persistent and self in GradientTape._GRADIENTS_TAPES:
             GradientTape._GRADIENTS_TAPES.remove(self)
 
     def delete(self) -> None:
-        """Removes the tape from the global active tapes list."""
+        """Manually remove tape from global registry."""
         if self in GradientTape._GRADIENTS_TAPES:
             GradientTape._GRADIENTS_TAPES.remove(self)
 
-    def watch(self, *objs: np.ndarray) -> None:
-        """Adds numpy arrays to the set of watched variables."""
-        for o in objs:
-            if not isinstance(o, (np.ndarray, np.generic)):
-                warnings.warn(
-                    f"Cannot watch object of type {type(o)}. Only numpy arrays are supported."
-                )
-                continue
-            self._watch(o)
+    def watch(self, *objs: Tensor | Variable) -> None:
+        """Mark tensors/variables for gradient tracking."""
+        for obj in objs:
+            if isinstance(obj, Variable):
+                self._watch(obj.value)
+            elif isinstance(obj, Tensor):
+                self._watch(obj)
 
-    def _watch(self, obj: np.ndarray) -> None:
-        """Internal helper to add an object's ID to the watched set."""
-        self.watched.add(id(obj))
+    def _watch(self, arr: Tensor) -> None:
+        """Internal method to watch a specific tensor."""
+        self.watched.add(id(arr))
 
-    def stop_gradient(self, x: np.ndarray) -> np.ndarray:
-        """Marks a tensor to stop gradient propagation."""
-        y = x.view()
-        setattr(y, "_stop_gradient", True)
-        return y
+    def stop_gradient(self, x: Tensor) -> Tensor:
+        """Mark tensor to stop gradient flow through it."""
+        setattr(x, "_stop_gradient", True)
+        return x
 
     @classmethod
-    def primitive(cls, func: Callable) -> Callable:
-        """Decorator to register a function as a primitive operation."""
+    def primitive(cls, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Decorator to register a function as a differentiable primitive."""
         name = func.__name__
-        cls._primitive_registry[name] = None  # Value can be None or a placeholder
+        cls._primitive_registry[name] = None
         return func
 
     @classmethod
-    def def_grad(cls, func: Callable) -> Callable:
-        """Decorator to define the gradient for a primitive operation."""
+    def def_grad(cls, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Decorator to define gradient function for a primitive."""
         target_name = func.__name__.replace("_grad", "")
         if target_name not in cls._primitive_registry:
-            raise ValueError(f"Primitive {target_name} not registered before defining grad.")
+            raise ValueError(f"Primitive '{target_name}' not registered before defining its gradient.")
         GRADIENTS[target_name] = func
         return func
 
-    def register_hook(self, var: np.ndarray, hook: Callable[[np.ndarray], np.ndarray]) -> None:
-        """Registers a hook function to be applied to the gradient of a variable."""
-        self._hooks[id(var)] = hook
+    def register_hook(self, var: Tensor | Variable, hook: Callable[[Tensor], Tensor]) -> None:
+        """Register a hook function to modify gradients during backpropagation."""
+        arr = var.value if isinstance(var, Variable) else var
+        self._hooks[id(arr)] = hook
 
     @staticmethod
-    def _get_gradient_dtype(dtype: np.dtype, forced: Optional[np.dtype] = None) -> np.dtype:
-        """Determines the appropriate dtype for gradients based on input and forced dtype."""
+    def _get_gradient_dtype(dtype: np.dtype, forced: np.dtype | None = None) -> np.dtype:
+        """Determine appropriate dtype for gradient computation."""
         if forced is not None:
             return forced
         if np.issubdtype(dtype, np.complexfloating):
@@ -139,36 +168,25 @@ class GradientTape:
 
     def _normalize_inputs(
         self,
-        inputs: Tuple[Any, ...],
-        kwargs: Dict[str, Any]
-    ) -> Tuple[Tuple[np.ndarray, ...], Dict[str, np.ndarray]]:
-        """Normalizes inputs and kwargs to numpy arrays."""
-        normalized_inputs = tuple(i if isinstance(i, np.ndarray) else np.array(i) for i in inputs)
-        normalized_kwargs = {
-            k: (v if isinstance(v, np.ndarray) else np.array(v))
-            for k, v in kwargs.items()
-        }
+        inputs: tuple[Tensor | Variable, ...],
+        kwargs: dict[str, Any]
+    ) -> tuple[tuple[Tensor, ...], dict[str, Any]]:
+        """Extract underlying tensors from Variables for computation."""
+        normalized_inputs = tuple(i.value if isinstance(i, Variable) else i for i in inputs)
+        normalized_kwargs = {k: v.value if isinstance(v, Variable) else v for k, v in kwargs.items()}
         return normalized_inputs, normalized_kwargs
 
     def _create_and_link_op_node(
         self,
-        func: Callable,
+        func: Callable[..., Any],
         method: str,
-        inputs: Tuple[np.ndarray, ...],
-        kwargs: Dict[str, Any],
-        result: np.ndarray
+        inputs: tuple[Tensor, ...],
+        kwargs: dict[str, Any],
+        result: Tensor
     ) -> None:
-        """
-        Creates an OpNode and links it to its parents in the computation graph.
-        Also attaches the newly created node directly to the array, so we can
-        skip dictionary lookups later.
-        """
-        # Skip anything that is not a plain ndarray:
-        if not isinstance(result, np.ndarray):
+        """Create OpNode and link it to parent nodes in computation graph."""
+        if not isinstance(result, (Tensor, Variable)):
             return
-
-        idx = self._next_creation_index
-        self._next_creation_index += 1
 
         node = OpNode(
             func=func,
@@ -176,97 +194,94 @@ class GradientTape:
             inputs=inputs,
             kwargs=kwargs,
             result=result,
-            creation_index=idx
+            creation_index=self._next_creation_index
         )
+        self._next_creation_index += 1
 
-        # Link parents (we rely on result_to_node for initial construction)
-        for inp in inputs:
-            parent = getattr(inp, "_tape_node", None)
-            if parent is None:
-                parent = self.result_to_node.get(id(inp))
+        # Link to parent nodes
+        for arr in inputs:
+            parent = self.result_to_node.get(id(arr))
             if parent is not None:
                 node.parents.append(parent)
 
-        # Register this node
         self.result_to_node[id(result)] = node
         self._nodes_in_order.append(node)
 
-        # Attach node to array for O(1) access
-        setattr(result, "_tape_node", node)
-
     def record(
         self,
-        func: Callable,
+        func: Callable[..., Any],
         method: str,
-        inputs: Tuple[Any, ...],
-        kwargs: Dict[str, Any],
-        result: Any
+        inputs: tuple[Tensor | Variable, ...],
+        kwargs: dict[str, Any],
+        result: Tensor | Variable
     ) -> None:
-        """Records an operation in the gradient tape if any input is watched."""
-        # Skip if “result” isn’t a NumPy array
-        if not isinstance(result, np.ndarray):
-            return
-        # Skip if stop_gradient was set
-        if hasattr(result, "_stop_gradient") and getattr(result, "_stop_gradient", False):
+        """Record an operation in all active gradient tapes."""
+        if not isinstance(result, (Tensor, Variable)) or getattr(result, "_stop_gradient", False):
             return
 
         normalized_inputs, normalized_kwargs = self._normalize_inputs(inputs, kwargs)
-        tapes = GradientTape._GRADIENTS_TAPES  # local ref
 
-        for tape in tapes:
-            # As soon as we find one watched input, record to that tape:
-            for x in normalized_inputs:
-                if id(x) in tape.watched:
-                    tape._watch(result)
-                    tape._create_and_link_op_node(
-                        func, method,
-                        normalized_inputs,
-                        normalized_kwargs,
-                        result
-                    )
-                    break
+        # Record in any tape that watches the inputs
+        for tape in GradientTape._GRADIENTS_TAPES:
+            if any(id(arr) in tape.watched for arr in normalized_inputs):
+                tape._watch(result)
+                tape._create_and_link_op_node(
+                    func, method,
+                    normalized_inputs,
+                    normalized_kwargs,
+                    result
+                )
+                break
 
-    def _unbroadcast_gradient(self, grad: np.ndarray, shape: Tuple[int, ...]) -> np.ndarray:
-        """Unbroadcasts a gradient to match the original input shape."""
-        if grad.shape == shape:
+    def _unbroadcast_gradient(self, grad: Tensor, original_shape: tuple[int, ...]) -> Tensor:
+        """Reverse broadcasting effects in gradient by summing over broadcasted dimensions."""
+        if grad.shape == original_shape:
             return grad
         if grad.ndim == 0:
-            return np.full(shape, grad.item(), dtype=grad.dtype)
+            return np.full(original_shape, grad.item(), dtype=grad.dtype)
 
-        # Inline unbroadcast logic for speed
-        ndim_diff = len(grad.shape) - len(shape)
+        # Sum over prepended dimensions
+        ndim_diff = grad.ndim - len(original_shape)
         axes_to_sum = list(range(ndim_diff)) if ndim_diff > 0 else []
+
+        # Sum over dimensions that were broadcast from size 1
         for i, dim_grad in enumerate(grad.shape[::-1]):
-            if i < len(shape) and shape[::-1][i] == 1 and dim_grad > 1:
-                axis_to_reduce = len(grad.shape) - 1 - i
-                axes_to_sum.append(axis_to_reduce)
+            if i < len(original_shape) and original_shape[::-1][i] == 1 and dim_grad > 1:
+                axes_to_sum.append(grad.ndim - 1 - i)
 
         if axes_to_sum:
             grad = grad.sum(axis=tuple(axes_to_sum), keepdims=True)
-        return grad.reshape(shape)
+
+        return grad.reshape(original_shape)
 
     def _compute_raw_gradients(
         self,
         node: OpNode,
         grad_res: Gradient
-    ) -> Union[Tuple[Tuple[np.ndarray, np.ndarray], ...], List[Tuple[np.ndarray, np.ndarray]]]:
-        """Computes raw gradients for a given operation node."""
+    ) -> list[tuple[Tensor, Tensor]]:
+        """Compute raw gradients using analytical or numerical methods."""
         name = node.func.__name__
-        if dfunc := GRADIENTS.get(name) or GradientTape._primitive_registry.get(name):
+        if gradient_func := GRADIENTS.get(
+            name
+        ) or GradientTape._primitive_registry.get(name):
             try:
-                raw_grads = dfunc(
+                raw_grads = gradient_func(
                     (grad_res.holomorphic, grad_res.antiholomorphic),
                     node.inputs,
                     **node.kwargs
                 )
             except TypeError:
-                raw_grads = dfunc(
+                raw_grads = gradient_func(
                     (grad_res.holomorphic, grad_res.antiholomorphic),
                     node.inputs
                 )
         else:
-            warnings.warn(f"No gradient for '{name}', using numerical approximation.")
-            approx = numerical_derivative(
+            # Fall back to numerical differentiation
+            warnings.warn(
+                f"No analytical gradient for '{name}', using numerical approximation. "
+                "Consider defining a gradient function for better performance and accuracy."
+            )
+            approx_jacobians = numerical_derivative(
                 node.func,
                 node.inputs,
                 node.kwargs,
@@ -275,44 +290,42 @@ class GradientTape:
                 verbose=False
             )
             raw_grads = []
-            for J_h, J_ah in approx:
+            for J_h, J_ah in approx_jacobians:
                 gh = grad_res.holomorphic.dot(J_h) + grad_res.antiholomorphic.dot(np.conj(J_ah))
                 gah = grad_res.holomorphic.dot(J_ah) + grad_res.antiholomorphic.dot(np.conj(J_h))
                 raw_grads.append((gh, gah))
+
         return raw_grads
 
     def _process_raw_gradients_format(
         self,
         raw_grads: Any,
         num_inputs: int
-    ) -> Tuple[Tuple[np.ndarray, Optional[np.ndarray]], ...]:
-        """Normalizes the raw gradient format to tuples of (holomorphic, antiholomorphic)."""
+    ) -> tuple[tuple[Tensor | None, Tensor | None], ...]:
+        """Normalize gradient format to consistent tuple structure."""
+        # Handle single input case
         if not isinstance(raw_grads, tuple) or not all(isinstance(g, tuple) for g in raw_grads):
-            if (
-                num_inputs == 1
-                and isinstance(raw_grads, tuple)
-                and len(raw_grads) == 2
-                and isinstance(raw_grads[0], np.ndarray)
-            ):
+            if num_inputs == 1 and isinstance(raw_grads, tuple) and len(raw_grads) == 2 and isinstance(raw_grads[0], (Tensor, Variable)):
                 raw_grads = (raw_grads,)
             elif isinstance(raw_grads, list):
                 raw_grads = tuple(raw_grads)
             else:
                 raw_grads = ((raw_grads, np.zeros_like(raw_grads)),)
 
-        processed_grads: List[Tuple[np.ndarray, Optional[np.ndarray]]] = []
+        processed_grads = []
         for grad_pair in raw_grads:
             if isinstance(grad_pair, tuple) and len(grad_pair) == 2:
                 processed_grads.append(grad_pair)
-            elif isinstance(grad_pair, np.ndarray):
+            elif isinstance(grad_pair, Tensor):
                 processed_grads.append((grad_pair, np.zeros_like(grad_pair)))
             else:
-                warnings.warn(f"Unexpected gradient format: {type(grad_pair)}. Skipping.")
+                warnings.warn(f"Unexpected gradient format: {type(grad_pair)}. Skipping gradient for this input.")
                 processed_grads.append((None, None))
+        
         return tuple(processed_grads)
 
-    def _initialize_input_gradient(self, inp: np.ndarray) -> None:
-        """Initializes the gradient storage for a given input if not already present."""
+    def _initialize_input_gradient(self, inp: Tensor) -> None:
+        """Initialize gradient storage for an input tensor."""
         if id(inp) not in self.grads:
             store_dtype = self._get_gradient_dtype(inp.dtype, self.forced_dtype)
             self.grads[id(inp)] = Gradient(
@@ -322,209 +335,199 @@ class GradientTape:
 
     def _accumulate_and_apply_hook(
         self,
-        inp: np.ndarray,
-        g_h: np.ndarray,
-        g_ah: np.ndarray
+        inp: Tensor,
+        g_h: Tensor,
+        g_ah: Tensor
     ) -> None:
-        """Accumulates gradients and applies registered hooks."""
+        """Accumulate gradients and apply any registered hooks."""
         entry = self.grads[id(inp)]
         entry.holomorphic += g_h
         entry.antiholomorphic += g_ah
 
-        hook = self._hooks.get(id(inp))
-        if hook is not None:
+        if hook := self._hooks.get(id(inp)):
             entry.holomorphic = hook(entry.holomorphic)
 
     def _gradient_recursive(self, node: OpNode, grad_res: Gradient) -> None:
-        """Recursively computes and propagates gradients through the computation graph."""
-        raw_grads = self._compute_raw_gradients(node, grad_res)
-        processed = self._process_raw_gradients_format(raw_grads, len(node.inputs))
+        """Recursively compute and accumulate gradients for a node's inputs."""
+        raw_grads_for_inputs = self._compute_raw_gradients(node, grad_res)
+        processed_grads = self._process_raw_gradients_format(raw_grads_for_inputs, len(node.inputs))
 
         for i, inp in enumerate(node.inputs):
-            if i >= len(processed):
+            if i >= len(processed_grads):
                 continue
-            gh, gah = processed[i]
+
+            gh, gah = processed_grads[i]
             if gh is None:
                 continue
 
-            # Ensure arrays
-            if not isinstance(gh, np.ndarray):
-                gh = np.array(gh, dtype=grad_res.holomorphic.dtype)
-            if not isinstance(gah, np.ndarray):
-                gah = np.array(gah, dtype=grad_res.antiholomorphic.dtype)
+            if not isinstance(inp, Tensor):
+                inp = Tensor(inp)
 
+            # Reverse broadcasting effects
             gh = self._unbroadcast_gradient(gh, inp.shape)
             gah = self._unbroadcast_gradient(gah, inp.shape)
 
             self._initialize_input_gradient(inp)
             self._accumulate_and_apply_hook(inp, gh, gah)
 
-    def _backpropagate(self, target: np.ndarray) -> None:
-        """
-        Backpropagate from `target` by:
-          1. Marking all ancestors of target (via visit‐stamp DFS),
-          2. Iterating reversed(self._nodes_in_order) and only processing marked nodes.
-        """
-        root_node = getattr(target, "_tape_node", None)
-        if root_node is None:
-            root_node = self.result_to_node.get(id(target))
+    def _backpropagate(self, target_arr: Tensor) -> None:
+        """Perform reverse-mode automatic differentiation from target."""
+        root_node = self.result_to_node.get(id(target_arr))
         if root_node is None:
             return
 
-        # 1) Mark ancestors using visit-stamp
+        # Mark all reachable nodes using topological ordering
         stamp = GradientTape._visit_stamp_counter
         GradientTape._visit_stamp_counter += 1
 
         stack = [root_node]
         while stack:
-            n = stack.pop()
-            if n.last_visited == stamp:
+            node = stack.pop()
+            if node.last_visited == stamp:
                 continue
-            n.last_visited = stamp
-            stack.extend(p for p in n.parents if p.last_visited != stamp)
-        # 2) Iterate all nodes in reverse creation order—only process if last_visited == stamp
+            node.last_visited = stamp
+            stack.extend(p for p in node.parents if p.last_visited != stamp)
+
+        # Process nodes in reverse topological order
         for node in reversed(self._nodes_in_order):
             if node.last_visited != stamp:
                 continue
+
             res_id = id(node.result)
             if res_id not in self.grads:
                 continue
+
             grad_res = self.grads[res_id]
             self._gradient_recursive(node, grad_res)
 
     def _get_final_gradient_for_source(
         self,
-        source: np.ndarray,
+        source_arr: Tensor,
         unconnected_gradients: str
-    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        """Retrieves the final (holomorphic, antiholomorphic) gradient for a single source."""
-        grad = self.grads.get(id(source))
+    ) -> tuple[Tensor, Tensor] | None:
+        """Get final gradient result for a source tensor."""
+        grad = self.grads.get(id(source_arr))
         if grad is None:
             if unconnected_gradients == "zero":
-                store_dtype = self._get_gradient_dtype(source.dtype, self.forced_dtype)
+                store_dtype = self._get_gradient_dtype(source_arr.dtype, self.forced_dtype)
                 return (
-                    np.zeros_like(source, dtype=store_dtype),
-                    np.zeros_like(source, dtype=store_dtype)
+                    np.zeros_like(source_arr, dtype=store_dtype),
+                    np.zeros_like(source_arr, dtype=store_dtype)
                 )
             return None
         return (grad.holomorphic, grad.antiholomorphic)
 
-    def _grad_scalar_or_tensor(
-        self,
-        target: np.ndarray,
-        source: np.ndarray,
-        output_gradient_seed: np.ndarray,
-        unconnected_gradients: str
-    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        """Computes the gradient for a single target-source pair."""
-        gh_init = output_gradient_seed.copy()
-        gah_init = np.zeros_like(output_gradient_seed)
-
-        self.grads.clear()
-        # Pre‐allocate gradients for the target (and any watched sources will be re‐initialized in `gradient` if necessary)
-        self.grads[id(target)] = Gradient(holomorphic=gh_init, antiholomorphic=gah_init)
-        self._backpropagate(target)
-        return self._get_final_gradient_for_source(source, unconnected_gradients)
-
     def gradient(
         self,
-        target: np.ndarray,
-        sources: Union[np.ndarray, List[np.ndarray], Tuple[np.ndarray, ...]],
-        output_gradients=None,
-        unconnected_gradients="none"
-    ) -> Union[Optional[Tuple[np.ndarray, np.ndarray]], List[Optional[Tuple[np.ndarray, np.ndarray]]]]:
-        """Computes the gradient of target with respect to sources."""
+        target: Tensor,
+        sources: Tensor | Variable | Iterable[Tensor | Variable],
+        output_gradients: Tensor | Variable | None = None,
+        unconnected_gradients: str = "none"
+    ) -> tuple[Tensor, Tensor] | list[tuple[Tensor, Tensor] | None] | None:
+        """
+        Compute gradients of target with respect to sources.
+        
+        Args:
+            target: Tensor to differentiate
+            sources: Source tensor(s) to compute gradients for
+            output_gradients: Gradient of some scalar w.r.t target
+            unconnected_gradients: How to handle unconnected variables ("none" or "zero")
+            
+        Returns:
+            Gradient tuple(s) (holomorphic, antiholomorphic) or None for unconnected
+        """
         if self._used and not self.persistent:
-            raise RuntimeError("GradientTape has already been used and is not persistent.")
+            raise RuntimeError(
+                "GradientTape has already been used and is not persistent. "
+                "Set `persistent=True` during initialization for reuse."
+            )
         self._used = True
 
-        # Normalize sources_list
-        if isinstance(sources, (list, tuple)):
-            sources_list = list(sources)
-            return_list = True
-        else:
-            sources_list = [sources]
-            return_list = False
+        target_arr = target.value if isinstance(target, Variable) else target
 
-        # Only keep watched sources
-        sources_list = [s for s in sources_list if id(s) in self.watched]
-        if not sources_list:
-            if unconnected_gradients == "zero":
-                result = [
-                    (
-                        np.zeros_like(s, dtype=self._get_gradient_dtype(s.dtype, self.forced_dtype)),
-                        np.zeros_like(s, dtype=self._get_gradient_dtype(s.dtype, self.forced_dtype))
-                    )
-                    for s in sources_list
-                ]
+        # Handle single vs multiple sources
+        is_single_source = not isinstance(sources, Iterable)
+        sources_raw = []
+        sources_to_process = [sources] if is_single_source else list(sources)
+        for s in sources_to_process:
+            if isinstance(s, Variable):
+                sources_raw.append(s.value)
             else:
-                result = [None for _ in sources_list]
-            return result if return_list else (result[0] if result else None)
+                sources_raw.append(s)
 
+        # Filter to only watched sources
+        filtered_sources = [s for s in sources_raw if id(s) in self.watched]
 
-        # Decide on seed arrays
+        if not filtered_sources:
+            if unconnected_gradients == "zero":
+                result_list = []
+                for s in sources_raw:
+                    dtype_s = self._get_gradient_dtype(s.dtype, self.forced_dtype)
+                    result_list.append((np.zeros_like(s, dtype=dtype_s), np.zeros_like(s, dtype=dtype_s)))
+            else:
+                result_list = [None] * len(sources_raw)
+            return result_list[0] if is_single_source and result_list else result_list
+
+        # Set up initial gradient
         if output_gradients is not None:
-            if output_gradients.shape != target.shape:
-                raise ValueError("output_gradients must have same shape as target")
-            gh_init = output_gradients
-            gah_init = np.zeros_like(output_gradients)
+            og_arr = output_gradients.value if isinstance(output_gradients, Variable) else output_gradients
+            if og_arr.shape != target_arr.shape:
+                raise ValueError(f"Output gradients shape {og_arr.shape} must match target shape {target_arr.shape}.")
+            gh_init = og_arr
+            gah_init = np.zeros_like(og_arr)
         else:
-            dtype_seed = self._get_gradient_dtype(target.dtype, self.forced_dtype)
-            if self._ones_seed is None or self._ones_seed.shape != target.shape:
-                self._ones_seed = np.ones_like(target, dtype=dtype_seed)
-            if self._zeros_seed is None or self._zeros_seed.shape != target.shape:
-                self._zeros_seed = np.zeros_like(target, dtype=dtype_seed)
+            dtype_seed = self._get_gradient_dtype(target_arr.dtype, self.forced_dtype)
+            if self._ones_seed is None or self._ones_seed.shape != target_arr.shape:
+                self._ones_seed = np.ones_like(target_arr, dtype=dtype_seed)
+            if self._zeros_seed is None or self._zeros_seed.shape != target_arr.shape:
+                self._zeros_seed = np.zeros_like(target_arr, dtype=dtype_seed)
             gh_init = self._ones_seed
             gah_init = self._zeros_seed
 
-        # Clear and pre‐allocate gradients for all watched sources
+        # Initialize gradients
         self.grads.clear()
-        for src in sources_list:
-            dtype_src = self._get_gradient_dtype(src.dtype, self.forced_dtype)
+        for src in filtered_sources:
             self.grads[id(src)] = Gradient(
-                holomorphic=np.zeros(src.shape, dtype=dtype_src),
-                antiholomorphic=np.zeros(src.shape, dtype=dtype_src)
+                holomorphic=np.zeros_like(src),
+                antiholomorphic=np.zeros_like(src)
             )
-        # Override the target’s gradient
-        self.grads[id(target)] = Gradient(holomorphic=gh_init.copy(), antiholomorphic=gah_init.copy())
 
-        self._backpropagate(target)
+        self.grads[id(target_arr)] = Gradient(holomorphic=gh_init, antiholomorphic=gah_init)
 
-        final_gradients = [
-            self._get_final_gradient_for_source(s, unconnected_gradients)
-            for s in sources_list
-        ]
-        return final_gradients if return_list else (final_gradients[0] if final_gradients else None)
+        # Perform backpropagation
+        self._backpropagate(target_arr)
+
+        # Collect final gradients
+        final_gradients = []
+        for src in sources_raw:
+            grad_pair = self._get_final_gradient_for_source(src, unconnected_gradients)
+            final_gradients.append(grad_pair)
+
+        return final_gradients[0] if is_single_source else final_gradients
 
     @staticmethod
-    def _jac_row_worker(args) -> np.ndarray:
-        """Helper for multiprocessing in jacobian."""
-        (
-            target,
-            source,
-            idx,
-            shape_target,
-            shape_source,
-            output_gradients,
-            unconnected_gradients,
-            forced_dtype
-        ) = args
+    def _jac_row_worker(args: tuple[Any, ...]) -> Tensor:
+        """Worker function for parallel Jacobian computation."""
+        (target_arr, source_arr, idx, shape_target, shape_source, 
+         output_gradients, unconnected_gradients, forced_dtype) = args
 
-        # Build a seed vector of shape `shape_target` with a 1 at `idx`
-        flat_t = np.zeros(shape_target, dtype=forced_dtype).reshape(-1)
-        flat_t[:] = 0
-        flat_t[idx] = 1.0
-        seed = flat_t.reshape(shape_target)
+        # Create unit vector for this row
+        flat_t_seed = np.zeros(shape_target, dtype=forced_dtype).reshape(-1)
+        flat_t_seed[idx] = 1.0
+        seed = flat_t_seed.reshape(shape_target)
+
         if output_gradients is not None:
             seed = seed * output_gradients
 
-        # In a separate process, we need a fresh tape to compute this “row”
-        tape = GradientTape(persistent=False, watch_accessed_variables=False, dtype=forced_dtype)
-        tape.watch(source)
-        grad_pair = tape._grad_scalar_or_tensor(target, source, seed, unconnected_gradients)
+        # Compute gradient for this output component
+        with GradientTape(persistent=False, watch_accessed_variables=False, dtype=forced_dtype) as tape:
+            tape.watch(source_arr)
+            grad_pair = tape._grad_scalar_or_tensor(target_arr, source_arr, seed, unconnected_gradients)
+
         if grad_pair is None:
             return np.zeros(np.prod(shape_source), dtype=forced_dtype)
 
+        # Combine holomorphic and antiholomorphic parts
         combined = grad_pair[0] + np.conj(grad_pair[1])
         if np.isrealobj(combined) or np.allclose(combined.imag, 0):
             return combined.real.reshape(-1)
@@ -532,243 +535,277 @@ class GradientTape:
 
     def jacobian(
         self,
-        target: np.ndarray,
-        source: np.ndarray,
+        target: Tensor | Variable,
+        source: Tensor | Variable,
         unconnected_gradients: str = "none",
-        output_gradients: Optional[np.ndarray] = None
-    ) -> np.ndarray:
-        """Computes the Jacobian matrix of target with respect to source, in parallel."""
+        output_gradients: Tensor | Variable | None = None
+    ) -> Tensor:
+        """
+        Compute full Jacobian matrix using parallel processing.
+        
+        Returns tensor of shape (target.shape + source.shape).
+        """
         if self._used and not self.persistent:
-            raise RuntimeError("GradientTape has already been used and is not persistent.")
+            raise RuntimeError(
+                "GradientTape has already been used and is not persistent. "
+                "Set `persistent=True` during initialization for reuse."
+            )
         self._used = True
 
-        flat_t = target.reshape(-1)
-        M = flat_t.shape[0]
-        shape_target = target.shape
-        shape_source = source.shape
-        forced_dtype = self._get_gradient_dtype(source.dtype, self.forced_dtype)
+        target_arr = target.value if isinstance(target, Variable) else target
+        source_arr = source.value if isinstance(source, Variable) else source
 
-        if output_gradients is not None and output_gradients.shape != shape_target:
-            raise ValueError("output_gradients must have same shape as target")
+        flat_target_size = target_arr.size
+        shape_target = target_arr.shape
+        shape_source = source_arr.shape
+        forced_dtype = self._get_gradient_dtype(source_arr.dtype, self.forced_dtype)
 
-        # Build argument list for each row
+        og_arr = None
+        if output_gradients is not None:
+            og_arr = output_gradients.value if isinstance(output_gradients, Variable) else output_gradients
+            if og_arr.shape != shape_target:
+                raise ValueError(f"Output gradients shape {og_arr.shape} must match target shape {shape_target}.")
+
+        # Prepare arguments for parallel computation
         args_list = [
             (
-                target,
-                source,
-                idx,
-                shape_target,
-                shape_source,
-                output_gradients,
-                unconnected_gradients,
-                forced_dtype
+                target_arr, source_arr, idx, shape_target, shape_source,
+                og_arr, unconnected_gradients, forced_dtype
             )
-            for idx in range(M)
+            for idx in range(flat_target_size)
         ]
 
-        # Use multiprocessing Pool to compute each “row” in parallel
-        with _mp.Pool() as pool:
+        # Compute Jacobian rows in parallel
+        with mp.Pool() as pool:
             rows = pool.map(GradientTape._jac_row_worker, args_list)
 
-        mat = np.stack(rows, axis=0)
-        return mat.reshape(shape_target + shape_source)
+        jacobian_matrix = np.stack(rows, axis=0)
+        return jacobian_matrix.reshape(shape_target + shape_source)
 
-    def jvp(
+    def _prepare_target_function(
         self,
-        target: Union[np.ndarray, Callable[[np.ndarray], np.ndarray]],
-        source: np.ndarray,
-        vector: np.ndarray
-    ) -> np.ndarray:
-        """Computes the Jacobian-vector product."""
-        f = (lambda x: target) if isinstance(target, np.ndarray) else target
-
-        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as inner_tape:
-            inner_tape.watch(source)
-            y = f(source)
-
-        # gy_result will be Optional[Tuple[np.ndarray, np.ndarray]] because 'source' is a single np.ndarray
-        gy_result = inner_tape.gradient(y, source)
-
-        dtype_src = self._get_gradient_dtype(source.dtype, self.forced_dtype)
-
-        if gy_result is None:
-            combined = np.zeros_like(source, dtype=dtype_src)
+        target: Tensor | Variable
+    ) -> Callable[[Tensor], Tensor]:
+        """Prepare target for JVP/VJP computation."""
+        if isinstance(target, Variable):
+            return lambda x: target.value
         else:
-            combined = gy_result[0] + np.conj(gy_result[1])
+            return lambda x: target
 
-        if y.ndim == 0 or y.size == 1:
-            return np.sum(combined * vector)
-
-        warnings.warn(
-            "JVP for vectorial target is not implemented correctly with this approach. Returning VJP‐like result."
-        )
-        # For the VJP-like result, we need the gradient of y wrt source with output_gradients=vector.
-        # This is essentially the VJP.
-        vjp_result = inner_tape.gradient(y, source, output_gradients=vector, unconnected_gradients="zero")
-        # vjp_result will be Optional[Tuple[np.ndarray, np.ndarray]]
-        if vjp_result is None:
-            return np.zeros_like(source, dtype=dtype_src)
-        return vjp_result[0] + np.conj(vjp_result[1])
-
-
-    def vjp(
+    def _get_combined_gradient_from_tape_output(
         self,
-        target: Union[np.ndarray, Callable[[np.ndarray], np.ndarray]],
-        source: np.ndarray,
-        vector: np.ndarray
-    ) -> np.ndarray:
-        """Computes the vector-Jacobian product."""
-        f = (lambda x: target) if isinstance(target, np.ndarray) else target
-
-        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as tape:
-            tape.watch(source)
-            y = f(source)
-
-        # vjp_result will be Optional[Tuple[np.ndarray, np.ndarray]] because 'source' is a single np.ndarray
-        vjp_result = tape.gradient(y, source, output_gradients=vector, unconnected_gradients="zero")
-        return self._get_combined_gradient_from_tape_output(vjp_result, source)
-
-    def derivative(
-        self,
-        f: Callable[[np.ndarray], np.ndarray],
-        x: np.ndarray,
-        order: int
-    ) -> np.ndarray:
-        """Computes the n-th order derivative of a function."""
-        if order < 0:
-            raise ValueError("Order must be non-negative.")
-        if order == 0:
-            return f(x)
-        
-        # Recursively compute the (order-1)-th derivative.
-        # This 'inner_derivative_value' will be a np.ndarray.
-        inner_derivative_value = self.derivative(f, x, order - 1)
-
-        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as tape:
-            tape.watch(x)
-            # Compute the gradient of the (order-1)-th derivative value with respect to x.
-            # Since 'x' is a single source, tape.gradient will return Optional[Tuple[np.ndarray, np.ndarray]].
-            grad_result_pair = tape.gradient(inner_derivative_value, x)
-
-        # Combine the holomorphic and anti-holomorphic parts using the helper.
-        return self._get_combined_gradient_from_tape_output(grad_result_pair, x)
-
-    # Renamed and updated helper for vjp/derivative
-    def _get_combined_gradient_from_tape_output(self, grad_output_from_tape: Union[Optional[Tuple[np.ndarray, np.ndarray]], List[Optional[Tuple[np.ndarray, np.ndarray]]]], source_tensor: np.ndarray) -> np.ndarray:
-        """
-        Helper to extract and combine holomorphic and anti-holomorphic gradients
-        from the output of the gradient method.
-        """
-        grad_pair: Optional[Tuple[np.ndarray, np.ndarray]] = None
+        grad_output_from_tape: Any,
+        source_arr: Tensor
+    ) -> Tensor:
+        """Combine holomorphic and antiholomorphic gradients."""
+        grad_pair = None
 
         if isinstance(grad_output_from_tape, list):
-            # If the output is a list (e.g., from multiple sources), take the first element.
             if grad_output_from_tape:
                 grad_pair = grad_output_from_tape[0]
         else:
-            # Otherwise, it's already the single Optional[Tuple[np.ndarray, np.ndarray]]
             grad_pair = grad_output_from_tape
 
-        dtype_src = self._get_gradient_dtype(source_tensor.dtype, self.forced_dtype)
-
+        dtype_src = self._get_gradient_dtype(source_arr.dtype, self.forced_dtype)
         if grad_pair is None:
-            # If no gradient is found, return zeros of the appropriate type and shape.
-            return np.zeros_like(source_tensor, dtype=dtype_src)
+            return np.zeros_like(source_arr, dtype=dtype_src)
         else:
-            # Combine holomorphic and anti-holomorphic parts.
             return grad_pair[0] + np.conj(grad_pair[1])
 
-    def hessian(self, f: Callable[[np.ndarray], np.ndarray], x: np.ndarray) -> np.ndarray:
-        """Computes the Hessian matrix of a scalar-valued function."""
-        n = x.size
-        hessian_dtype = self._get_gradient_dtype(x.dtype, self.forced_dtype)
-        H = np.zeros((n, n), dtype=hessian_dtype)
+    def jvp(
+        self,
+        target: Tensor | Variable,
+        source: Tensor | Variable,
+        vector: Tensor | Variable
+    ) -> Tensor:
+        """
+        Compute Jacobian-vector product (forward-mode AD).
+        
+        For scalar targets, computes directional derivative.
+        For vector targets, warns about current VJP-like behavior.
+        """
+        source_arr = source.value if isinstance(source, Variable) else source
+        vec_arr = vector.value if isinstance(vector, Variable) else vector
+        f = self._prepare_target_function(target)
 
+        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as inner_tape:
+            inner_tape.watch(source_arr)
+            y = f(source_arr)
+
+        gy_result = inner_tape.gradient(y, source_arr)
+        combined_grad_y = self._get_combined_gradient_from_tape_output(gy_result, source_arr)
+
+        if isinstance(y, Tensor) and (y.ndim == 0 or y.size == 1):
+            return np.sum(combined_grad_y * vec_arr)
+
+        warnings.warn(
+            "JVP for vectorial target is not implemented as a direct Jacobian-vector product. "
+            "It currently computes a VJP-like result (vector^T @ J(f)). "
+            "Consider using `jacobian` and then matrix multiplication for explicit JVP."
+        )
+        vjp_result = inner_tape.gradient(y, source_arr, output_gradients=vec_arr, unconnected_gradients="zero")
+        return self._get_combined_gradient_from_tape_output(vjp_result, source_arr)
+
+    def vjp(
+        self,
+        target: Tensor | Variable,
+        source: Tensor | Variable,
+        vector: Tensor | Variable
+    ) -> Tensor:
+        """Compute vector-Jacobian product (reverse-mode AD)."""
+        source_arr = source.value if isinstance(source, Variable) else source
+        vec_arr = vector.value if isinstance(vector, Variable) else vector
+        f = self._prepare_target_function(target)
+
+        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as tape:
+            tape.watch(source_arr)
+            y = f(source_arr)
+
+        vjp_result = tape.gradient(y, source_arr, output_gradients=vec_arr, unconnected_gradients="zero")
+        return self._get_combined_gradient_from_tape_output(vjp_result, source_arr)
+
+    def derivative(
+        self,
+        f: Callable[[Tensor], Tensor],
+        x: Tensor | Variable,
+        order: int
+    ) -> Tensor:
+        """Compute higher-order derivatives recursively."""
+        x_arr = x.value if isinstance(x, Variable) else x
+
+        if order < 0:
+            raise ValueError("Derivative order must be non-negative.")
+        if order == 0:
+            return f(x_arr)
+
+        # Recursive computation of higher-order derivatives
+        inner_value = self.derivative(f, x_arr, order - 1)
+
+        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as tape:
+            tape.watch(x_arr)
+            grad_pair = tape.gradient(inner_value, x_arr)
+
+        return self._get_combined_gradient_from_tape_output(grad_pair, x_arr)
+
+    def hessian(self, f: Callable[[Tensor], Tensor], x: Tensor | Variable) -> Tensor:
+        """Compute Hessian matrix using parallel processing."""
+        x_arr = x.value if isinstance(x, Variable) else x
+
+        n = x_arr.size
+        hessian_dtype = self._get_gradient_dtype(x_arr.dtype, self.forced_dtype)
+
+        # Compute first-order gradient
         with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as g1:
-            g1.watch(x)
-            y = f(x)
-
-        # grad_f_pair will be Optional[Tuple[np.ndarray, np.ndarray]]
-        grad_f_pair = g1.gradient(y, x)
+            g1.watch(x_arr)
+            y = f(x_arr)
+            grad_f_pair = g1.gradient(y, x_arr)
 
         if not grad_f_pair:
-            raise ValueError("Could not compute first gradient for Hessian calculation.")
-        # Flattened gradient
-        grad_f_combined = grad_f_pair[0] + np.conj(grad_f_pair[1])
-        grad_flat = grad_f_combined.flatten()
+            raise ValueError(
+                "Could not compute first gradient for Hessian calculation. "
+                "Ensure `f` is differentiable with respect to `x`."
+            )
 
-        def _hess_worker(args):
-            i, flat_grad = args
-            seed_i = np.zeros_like(flat_grad)
-            seed_i[i] = 1.0
-            seed_mat = seed_i.reshape(x.shape)
+        def _hess_worker(args: tuple[Any, ...]) -> Tensor:
+            """Worker for parallel Hessian computation."""
+            i, original_x_arr, current_f_val, tape_watch_on_read, tape_forced_dtype = args
 
-            tape = GradientTape(persistent=False, watch_accessed_variables=False, dtype=hessian_dtype)
-            tape.watch(x)
-            # grad_pair_inner will be Optional[Tuple[np.ndarray, np.ndarray]]
-            grad_pair_inner = tape.gradient(f(x), x, output_gradients=seed_mat, unconnected_gradients="zero")
+            # Create unit vector for i-th component
+            seed_i = np.zeros_like(current_f_val)
+            seed_i.flat[i] = 1.0
+
+            with GradientTape(persistent=False, watch_accessed_variables=tape_watch_on_read, dtype=tape_forced_dtype) as tape:
+                tape.watch(original_x_arr)
+                grad_pair_inner = tape.gradient(
+                    f(original_x_arr),
+                    original_x_arr,
+                    output_gradients=seed_i.reshape(original_x_arr.shape),
+                    unconnected_gradients="zero"
+                )
+            
             if grad_pair_inner is None:
                 return np.zeros(n, dtype=hessian_dtype)
+
             combined_inner = grad_pair_inner[0] + np.conj(grad_pair_inner[1])
             return combined_inner.reshape(-1)
 
-        args = [(i, grad_flat) for i in range(n)]
-        with _mp.Pool() as pool:
-            columns = pool.map(_hess_worker, args)
+        # Prepare arguments for parallel computation
+        args_list = [
+            (i, x_arr, f(x_arr), self.watch_on_read, hessian_dtype)
+            for i in range(n)
+        ]
+
+        # Compute Hessian columns in parallel
+        with mp.Pool() as pool:
+            columns = pool.map(_hess_worker, args_list)
+
+        H = np.zeros((n, n), dtype=hessian_dtype)
 
         for i in range(n):
             H[:, i] = columns[i]
         return H
 
-    def print_graph(self, target: np.ndarray) -> None:
-        """Prints the computation graph leading to the target node."""
-        visited = set()
+    def print_graph(self, target: Tensor | Variable) -> None:
+        """
+        Prints the computation graph backwards from the target node using DFS.
+        
+        Args:
+            target: The Tensor or Variable to start graph traversal from.
+        """
+        # Extract underlying tensor from Variable wrapper
+        target_tensor = target.value if isinstance(target, Variable) else target
+        visited_nodes: set[int] = set()
 
-        def _dfs(node: OpNode, indent=0):
-            if node is None or id(node) in visited:
+        def _dfs(node: Any, indent_level: int = 0) -> None:
+            """Recursive DFS traversal of computation graph."""
+            if node is None or id(node) in visited_nodes:
                 return
-            visited.add(id(node))
-            print("    " * indent + repr(node))
-            for parent in node.parents:
-                _dfs(parent, indent + 1)
 
-        root = getattr(target, "_tape_node", None)
-        if root is None:
-            root = self.result_to_node.get(id(target))
-        _dfs(root)
+            visited_nodes.add(id(node))
+            indent = "  " * indent_level
 
-    def _calculate_numerical_gradient(self, f: Callable[[np.ndarray], np.ndarray], x: np.ndarray, eps: float) -> np.ndarray:
-        """Calculates the numerical gradient of f with respect to x."""
-        x_copy = x.copy()
-        num_grad = np.zeros_like(x_copy, dtype=self._get_gradient_dtype(x_copy.dtype, self.forced_dtype))
-        it = np.nditer(x_copy, flags=['multi_index'], op_flags=['readwrite'])
-        while not it.finished:
-            idx = it.multi_index
-            orig = x_copy[idx].copy()
+            if isinstance(node, Tensor):
+                print(f"{indent}Tensor(ID={id(node)}, shape={node.shape}, dtype={node.dtype})")
+                
+                # Find the OpNode that produced this tensor (if any)
+                producer_node = self.result_to_node.get(id(node))
+                if producer_node:
+                    _dfs(producer_node, indent_level)
 
-            x_copy[idx] = orig + eps
-            fplus = f(x_copy)
+            elif isinstance(node, OpNode):
+                print(f"{indent}OpNode(func={node.func.__name__}, "
+                    f"result_id={id(node.result)}, "
+                    f"shape={node.result.shape}, dtype={node.result.dtype})")
+                
+                # Recurse on input tensors (parents in computation graph)
+                for parent_tensor in node.inputs:
+                    _dfs(parent_tensor, indent_level + 1)
+            else:
+                print(f"{indent}Unknown node type: {type(node)} (ID={id(node)})")
 
-            x_copy[idx] = orig - eps
-            fminus = f(x_copy)
+        # Start traversal from root OpNode or handle input tensor case
+        root_node = self.result_to_node.get(id(target_tensor))
+        
+        if root_node is None:
+            # Target is an input tensor, not a computation result
+            if id(target_tensor) in self.watched:
+                print(f"Graph for watched input Tensor (ID={id(target_tensor)}):")
+                
+                # Find operations that consume this input
+                consumers_found = False
+                for op_node in self._nodes_in_order:
+                    if any(id(inp) == id(target_tensor) for inp in op_node.inputs) and id(op_node) not in visited_nodes:
+                        print("  --> Consumed by:")
+                        _dfs(op_node, indent_level=2)
+                        consumers_found = True
+                
+                if not consumers_found:
+                    print("  No consuming operations found in recorded graph.")
+            else:
+                print(f"Target {id(target_tensor)} not found in computation graph. "
+                    "Neither operation result nor watched input.")
+            return
 
-            x_copy[idx] = orig
-            num_grad[idx] = (fplus - fminus) / (2 * eps)
-            it.iternext()
-        return num_grad
-
-    def check_gradient(self, f: Callable[[np.ndarray], np.ndarray], x: np.ndarray, eps: float = 1e-5) -> float:
-        """Compares the analytical gradient with a numerical approximation."""
-        with GradientTape(persistent=False, watch_accessed_variables=self.watch_on_read, dtype=self.forced_dtype) as g:
-            g.watch(x)
-            y = f(x)
-
-        # grad_pair will be Optional[Tuple[np.ndarray, np.ndarray]]
-        grad_pair = g.gradient(y, x)
-        if not grad_pair:
-            raise ValueError("Analytical gradient could not be computed for check_gradient.")
-
-        analytical_grad = grad_pair[0] + np.conj(grad_pair[1])
-        numerical_grad = self._calculate_numerical_gradient(f, x, eps)
-        return np.max(np.abs(numerical_grad - analytical_grad))
-
+        # Target is result of an operation - start backward traversal
+        print(f"Graph for result Tensor (ID={id(target_tensor)}):")
+        _dfs(root_node)

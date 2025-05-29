@@ -1,5 +1,7 @@
 import numpy as np
-from typing import Tuple, Callable, Dict, List, Any
+from typing import Self, Tuple, Callable, Dict, List, Any
+
+from ..types import Variable, Tensor
 from ..tape import GradientTape
 
 class Optimizer:
@@ -12,23 +14,20 @@ class Optimizer:
     def __init__(self) -> None:
         self._iterations: int = 0
         # Slots: {slot_name: {var_id: slot_value}}
-        self._slots: Dict[str, Dict[int, np.ndarray]] = {}
+        self._slots: Dict[str, Dict[int, Variable]] = {}
         self._built: bool = False
         
+    
     @staticmethod
-    def __get_all_subclasses(cls):
-        all_subclasses = []
-        for subclass in cls.__subclasses__():
-            all_subclasses.append(subclass)
-            all_subclasses.extend(cls.__get_all_subclasses(subclass))
-        return all_subclasses
+    def __get_all_subclasses() -> Dict[str, Self]:
+        return {
+            subclass.__name__: subclass
+            for subclass in Optimizer.__subclasses__()
+        }
     
     @classmethod
-    def from_string(cls, optimizer_name: str):
-        subclasses = cls.__get_all_subclasses(cls)
-        for subclass in subclasses:
-            if subclass.__name__ == optimizer_name:
-                return subclass()
+    def from_string(cls, optimizer_name: str) -> Self:
+        return cls.__get_all_subclasses()[optimizer_name]
 
     @property
     def iterations(self) -> int:
@@ -41,11 +40,10 @@ class Optimizer:
     def compute_gradients(
         self,
         loss: Callable[[], Any],
-        var_list: List[np.ndarray],
-        grad_loss: np.ndarray = None,
-        name: str = None,
+        var_list: List[Variable],
+        grad_loss: Tensor = None,
         tape: GradientTape = None
-    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+    ) -> List[Tuple[Tensor, Tensor]]:
         """
         Compute gradients of loss w.r.t. var_list using GradientTape.
         If tape is not provided, a new one is created.
@@ -71,7 +69,7 @@ class Optimizer:
 
     def apply_gradients(
         self,
-        grads_and_vars: List[Tuple[np.ndarray, np.ndarray]]
+        grads_and_vars: List[Tuple[Tensor, Variable]]
     ) -> None:
         """
         Apply gradients to variables. Build slots if needed, then call update_step
@@ -88,7 +86,7 @@ class Optimizer:
 
         self._iterations += 1
 
-    def build(self, var_list: List[np.ndarray]) -> None:
+    def build(self, var_list: List[Variable]) -> None:
         """
         Initialize any optimizer-specific slots for each variable.
         Called once before the first application of gradients.
@@ -96,7 +94,7 @@ class Optimizer:
         # Example: subclasses may call add_slot(var, name)
         pass
 
-    def add_slot(self, var: np.ndarray, slot_name: str) -> None:
+    def add_slot(self, var: Variable, slot_name: str) -> None:
         """
         Create a slot tensor for a given variable under slot_name.
         """
@@ -106,9 +104,9 @@ class Optimizer:
         if var_id in self._slots[slot_name]:
             return  # slot already exists
         # initialize slot with zeros of same shape as var
-        self._slots[slot_name][var_id] = np.zeros_like(var)
+        self._slots[slot_name][var_id] = var
 
-    def get_slot(self, var: np.ndarray, slot_name: str) -> np.ndarray:
+    def get_slot(self, var: Variable, slot_name: str) -> Variable:
         """
         Get the value of a slot for a given variable.
         """
@@ -117,7 +115,7 @@ class Optimizer:
         except KeyError:
             raise ValueError(f"Slot '{slot_name}' not found for variable {var}.")
 
-    def update_step(self, gradient: np.ndarray, variable: np.ndarray) -> None:
+    def update_step(self, gradient: Tensor, variable: Variable) -> None:
         """
         Apply one step of the update to a single variable.
         Subclasses must override this method to implement specific optimizer rules.

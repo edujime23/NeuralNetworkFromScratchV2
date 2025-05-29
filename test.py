@@ -1,16 +1,17 @@
-from network.tape import GradientTape, numerical_derivative, GRADIENTS
 from network.types import Variable
+from network.tape import GradientTape
 import numpy as np
-from numba import vectorize
 
-del GRADIENTS['conjugate']
-
-x = Variable([1.0, 2.0, 3.0], dtype=np.float64)
-y = Variable([1+1j, 2+2j, 3+3j], dtype=np.complex128)
+x = Variable([1.0, 2.0, 3.0], dtype=np.float32, name="x")
 
 def func(x):
-    return x**2
+    res = x ** 2
+    return res
 
-dx = GradientTape().derivative(func, x, 2)
+with GradientTape() as tape:
+    tape.watch(x)
+    z = func(x)
 
-print(dx)
+grads = tape.gradient(z, x)
+
+print(grads)

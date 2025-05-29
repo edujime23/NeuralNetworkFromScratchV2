@@ -1,5 +1,5 @@
 from network.tape import GradientTape, GRADIENTS
-from network.optimizers import AdamOptimizer
+from network.optimizers import *
 from network.types import Variable
 import numpy as np
 
@@ -7,17 +7,14 @@ np.random.seed(69)
 
 target = np.array([1 + -1j], dtype=np.complex128)
 
-w = Variable(value=[0.0 + 0.0j], trainable=True, name='w', initializer='xavier_uniform')
+w = Variable(value=[0.0 + 0.0j], trainable=True, name='w', initializer='ones')
 w.initialize()
 
-opt = AdamOptimizer(learning_rate=1e-3)
+opt = AdamOptimizer(1e-3)
 steps = int(1e4)
 
 def func(x):
-    res = np.conj(x + 3)
-    res += x - np.log(x)
-    res *= np.exp(x)
-    res -= np.sin(x)
+    res = x
     return res
 
 def losss(x):
@@ -32,6 +29,7 @@ def run_optimization():
             loss = losss(out)
 
         holo, anti = tape.gradient(loss, w)
+        # print(tape._nodes_in_order)
 
         grad = holo + anti
         opt.apply_gradients([(grad, w)])

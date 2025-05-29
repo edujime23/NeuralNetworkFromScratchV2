@@ -1,5 +1,5 @@
 from network.types.variable import Variable
-from network.tape.gradient_tape import GradientTape
+from network.tape import GradientTape
 import numpy as np
 
 # Create test Variables
