@@ -1,22 +1,25 @@
+from collections.abc import Callable
+from typing import Any, Self
+
 import numpy as np
-from typing import Any, Dict, Tuple, Union, Callable, Optional, Self
-from .tensor import Tensor
+
 from ..initializers import Initializer, Zeros
+from .tensor import Tensor
+
 
 class Variable:
     __initializer_map = {
-        cls.__name__.lower(): cls
-        for cls in Initializer.__subclasses__()
+        cls.__name__.lower(): cls for cls in Initializer.__subclasses__()
     }
-    
+
     def __init__(
         self,
-        value: Optional[np.typing.ArrayLike] = None,
-        shape: Optional[Tuple[int, ...]] = None,
-        dtype: Optional[np.typing.DTypeLike] = None,
-        trainable: Optional[bool] = True,
-        name: Optional[str] = None,
-        initializer: Optional[Union[Initializer, Callable, str]] = None,
+        value: np.typing.ArrayLike | None = None,
+        shape: tuple[int, ...] | None = None,
+        dtype: np.typing.DTypeLike | None = None,
+        trainable: bool = True,
+        name: str | None = None,
+        initializer: Initializer | Callable | str | None = None,
     ):
         self.__tensor = Tensor(value=value, shape=shape, dtype=dtype, name=name)
         self.__trainable = trainable or True
@@ -25,80 +28,79 @@ class Variable:
             self.__initializer = self.__initializer_map.get(initializer, Zeros)()
         else:
             self.__initializer = initializer
-            
-    def copy(self, order = None):
+
+    def copy(self, order=None):
         return Variable(
-            value=self.__tensor.copy(order=order), 
-            shape=self.__tensor.shape, 
-            dtype=self.__tensor.dtype, 
-            trainable=self.__trainable, 
-            name=self.__tensor.name, 
-            initializer=self.__initializer
-        ) 
-    
-    def assign(self, value: np.typing.ArrayLike) -> Self:
-        self.__tensor = Tensor(value, shape=self.__tensor.shape, dtype=self.__tensor.dtype)
-        return self
-    
-    def initialize(self):
-        self.assign(
-            self.initializer(self.__tensor)
+            value=self.__tensor.copy(order=order),
+            shape=self.__tensor.shape,
+            dtype=self.__tensor.dtype,
+            trainable=self.__trainable,
+            name=self.__tensor.name,
+            initializer=self.__initializer,
         )
-    
+
+    def assign(self, value: np.typing.ArrayLike) -> Self:
+        self.__tensor = Tensor(
+            value, shape=self.__tensor.shape, dtype=self.__tensor.dtype
+        )
+        return self
+
+    def initialize(self):
+        self.assign(self.initializer(self.__tensor))
+
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         return self.__do_op__(func=ufunc, method=method, args=inputs, kwargs=kwargs)
 
     def __array_function__(self, func, types, args, kwargs):
         return self.__do_op__(func=func, method="__call__", args=args, kwargs=kwargs)
-    
-    def __do_op__(self, func: Callable, method: str, args: Tuple[str, Any], kwargs: Dict[str, Any]) -> Self:
+
+    def __do_op__(
+        self, func: Callable, method: str, args: tuple[str, Any], kwargs: dict[str, Any]
+    ) -> Self:
         tensor_inputs = tuple(
-            x.__tensor if isinstance(x, type(self)) else x
-            for x in args
+            x.__tensor if isinstance(x, type(self)) else x for x in args
         )
         return getattr(func, method)(*tensor_inputs, **kwargs)
-    
+
     @property
     def numpy(self) -> np.ndarray:
-        return self.__tensor.view(np.ndarray).copy() 
-    
+        return self.__tensor.numpy()
+
     @property
     def trainable(self) -> bool:
         return self.__trainable
 
     @property
-    def name(self) -> Optional[str]:
+    def name(self) -> str | None:
         return self.__tensor.name
-    
+
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         return self.__tensor.shape
 
     @property
     def dtype(self) -> np.typing.DTypeLike:
         return self.__tensor.dtype
-    
+
     @property
     def value(self) -> Tensor:
         return self.__tensor
-    
+
     @property
     def initializer(self):
-        return self.__initializer 
-    
+        return self.__initializer
+
     @property
     def real(self) -> Tensor:
         return self.__tensor.real
-    
+
     @property
     def imag(self) -> Tensor:
         return self.__tensor.imag
-    
+
     def __repr__(self):
-        return (f"Variable(name={self.name}, shape={self.__tensor.shape}, "
-                f"dtype={self.__tensor.dtype}, trainable={self.trainable}, "
-                f"value=\n{self.__tensor.view(np.ndarray)})")
-    
+        return self.__tensor.data.__repr__()
+
     # --- Arithmetic Operators ---
     def __add__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
@@ -150,11 +152,11 @@ class Variable:
 
     def __pow__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor ** other_val
+        return self.__tensor**other_val
 
     def __rpow__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val ** self.__tensor
+        return other_val**self.__tensor
 
     # --- Bitwise Operators ---
     def __and__(self, other) -> Tensor:
@@ -239,7 +241,7 @@ class Variable:
 
     def __ipow__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        self.assign(self.__tensor ** other_val)
+        self.assign(self.__tensor**other_val)
         return self
 
     def __iand__(self, other) -> Tensor:
@@ -266,11 +268,14 @@ class Variable:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor >> other_val)
         return self
-    
+
     def __getitem__(self, key):
-        return self.__tensor.view(np.ndarray)[key].copy()
+        return self.__tensor[key]
 
     def __setitem__(self, key, value):
-        current_numpy_value = self.__tensor.view(np.ndarray).copy()
+        current_numpy_value = self.__tensor.data.copy()
         current_numpy_value[key] = value
         self.assign(current_numpy_value)
+
+    def __len__(self):
+        return len(self.__tensor)

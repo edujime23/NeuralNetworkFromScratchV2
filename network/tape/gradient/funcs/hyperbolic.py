@@ -1,9 +1,11 @@
-from typing import Tuple, Any
 import numpy as np
+
+from ....types import Tensor
+
 
 class HyperbolicGradients:
     @staticmethod
-    def sinh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def sinh(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -18,7 +20,7 @@ class HyperbolicGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def cosh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def cosh(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -33,7 +35,7 @@ class HyperbolicGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def tanh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def tanh(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -45,13 +47,15 @@ class HyperbolicGradients:
         tanh_conj = np.tanh(np.conjugate(inp))
         tanh_val = np.tanh(inp)
 
-        grad_h = grad_output_h * (1 - tanh_conj ** 2)
-        grad_ah = grad_output_ah * (1 - tanh_val ** 2)
+        grad_h = grad_output_h * (1 - tanh_conj**2)
+        grad_ah = grad_output_ah * (1 - tanh_val**2)
 
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def arcsinh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def arcsinh(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -60,7 +64,7 @@ class HyperbolicGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(x)
 
-        denom_h = np.sqrt(np.conjugate(x)**2 + 1)
+        denom_h = np.sqrt(np.conjugate(x) ** 2 + 1)
         denom_ah = np.sqrt(x**2 + 1)
 
         grad_h = grad_output_h / denom_h
@@ -69,7 +73,9 @@ class HyperbolicGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def arccosh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def arccosh(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if np.isrealobj(x) and np.any(np.abs(x) < 1):
@@ -81,7 +87,7 @@ class HyperbolicGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(x)
 
-        denom_h = np.sqrt(np.conjugate(x)**2 - 1)
+        denom_h = np.sqrt(np.conjugate(x) ** 2 - 1)
         denom_ah = np.sqrt(x**2 - 1)
 
         grad_h = grad_output_h / denom_h
@@ -90,7 +96,9 @@ class HyperbolicGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def arctanh(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def arctanh(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -99,7 +107,7 @@ class HyperbolicGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(x)
 
-        denom_h = 1 - np.conjugate(x)**2
+        denom_h = 1 - np.conjugate(x) ** 2
         denom_ah = 1 - x**2
 
         grad_h = grad_output_h / denom_h

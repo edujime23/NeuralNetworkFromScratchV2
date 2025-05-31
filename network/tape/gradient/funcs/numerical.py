@@ -1,13 +1,20 @@
-import numpy as np
-from typing import Callable, Tuple, Dict, Any, List, Optional
-import warnings
-from scipy.optimize import minimize_scalar
-from dataclasses import dataclass
 import time
+import warnings
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+from scipy.optimize import minimize_scalar
+
+from ....functions import zeros
+from ....types import Tensor, Variable
+
 
 @dataclass
 class DerivativeConfig:
     """Configuration class for derivative computation parameters"""
+
     verbose: bool = False
     return_real_if_input_real: bool = True
     adaptive_step: bool = True
@@ -21,486 +28,647 @@ class DerivativeConfig:
     use_optimal_step_search: bool = True
     parallel_evaluation: bool = False
 
+
 class WirtingerDifferentiator:
     """
-    Fixed Wirtinger‐derivatives numerical approximator that correctly computes
-    Jacobian matrices instead of summed derivatives.
-
-    This version now also accepts integer‐typed inputs by silently casting them
-    to float64 before proceeding.
+    Numerical Wirtinger‐derivatives approximator for Tensor/Variable.
+    This version never mutates any Tensor in place, and never calls
+    tensor.numpy() to build perturbations.  All masks are built from
+    Python lists (wrapped into Tensor), so that Tensor remains “write-only.”
     """
-    def __init__(self, config: Optional[DerivativeConfig] = None):
-        self.config = config or DerivativeConfig()
-        self.cache: Dict[Tuple[int, int], np.ndarray] = {}
-        self.evaluation_count = 0
-        self.step_size_history: List[Tuple[float, float]] = []
 
-        # Determine working precision based on configuration
-        if self.config.high_precision and hasattr(np, 'complex256'):
-            self.work_dtype = np.complex256
-            self.real_dtype = np.float128
-            self.machine_eps = np.finfo(np.float128).eps
-        else:
+    def __init__(self, config: DerivativeConfig | None = None):
+        self.config = config or DerivativeConfig()
+        self.cache: dict[tuple[int, int], Tensor] = {}
+        self.evaluation_count = 0
+        self.step_size_history: list[tuple[float, float]] = []
+
+        # Choose working and real dtypes
+        if self.config.high_precision:
             self.work_dtype = np.complex128
             self.real_dtype = np.float64
             self.machine_eps = np.finfo(np.float64).eps
+        else:
+            self.work_dtype = np.complex64
+            self.real_dtype = np.float32
+            self.machine_eps = np.finfo(np.float32).eps
 
         if self.config.verbose:
             print(f"Initialized with precision: {self.work_dtype}")
             print(f"Machine epsilon: {self.machine_eps:.2e}")
 
-    def _robust_hash(self, arr: np.ndarray) -> int:
-        """Create a robust hash for caching function evaluations"""
-        tolerance = max(self.machine_eps * 1000, 1e-12)
+    def _extract_tensor(self, input_obj: Tensor | Variable) -> Tensor:
+        """Extract the raw Tensor from a Variable or return it directly."""
+        return input_obj.value if isinstance(input_obj, Variable) else input_obj
+
+    def _robust_hash(self, tensor: Tensor) -> int:
+        """
+        Hash a Tensor by rounding its data to a tolerance, then hashing the bytes.
+        We only read from tensor.data (the underlying numpy array), never mutate it.
+        """
+        tol = max(self.machine_eps * 1000, 1e-12)
+        arr = tensor.data  # read-only numpy array
 
         if np.iscomplexobj(arr):
-            real_rounded = np.round(arr.real / tolerance) * tolerance
-            imag_rounded = np.round(arr.imag / tolerance) * tolerance
-            rounded = real_rounded + 1j * imag_rounded
+            # Round real and imag separately
+            real_rounded = np.round(arr.real / tol) * tol
+            imag_rounded = np.round(arr.imag / tol) * tol
+            combined = real_rounded + 1j * imag_rounded
+            return hash(combined.tobytes())
         else:
-            rounded = np.round(arr / tolerance) * tolerance
-
-        return hash(rounded.tobytes())
+            rounded = np.round(arr / tol) * tol
+            return hash(rounded.tobytes())
 
     def _validate_inputs(
         self,
         func: Callable,
-        inputs: Tuple[np.ndarray, ...],
-        kwargs: Dict[str, Any]
+        inputs: tuple[Tensor | Variable, ...],
+        kwargs: dict[str, Any],
     ):
         """
-        Comprehensive input validation with detailed error messages,
-        plus automatic promotion of integer arrays to float64.
+        Validate that func is callable, each input is a Tensor or Variable,
+        ensure no empty tensors, promote integers to floats, check finiteness.
+        Store two lists:
+          - self.original_inputs: all inputs as Tensors (dtype=work_dtype)
+          - self.current_inputs: a copy (which we will never mutate in place)
         """
         if not callable(func):
             raise TypeError("func must be callable")
 
         if not isinstance(inputs, tuple):
-            raise TypeError("inputs must be a tuple of np.ndarray")
+            raise TypeError("inputs must be a tuple of Tensor or Variable")
 
         if not inputs:
             raise ValueError("inputs tuple cannot be empty")
 
-        sanitized: List[np.ndarray] = []
-        for i, x in enumerate(inputs):
-            if not isinstance(x, np.ndarray):
-                raise TypeError(f"Input {i} must be np.ndarray, got {type(x)}")
+        sanitized: list[Tensor] = []
+        self.input_is_variable: list[bool] = []
 
-            # If dtype is integer, cast to float64 immediately:
-            if np.issubdtype(x.dtype, np.integer):
-                x = x.astype(np.float64)
+        for idx, x in enumerate(inputs):
+            if not isinstance(x, (Tensor, Variable)):
+                x = Tensor(x)
+            is_var = isinstance(x, Variable)
+            self.input_is_variable.append(is_var)
+            tensor = self._extract_tensor(x)
 
-            # Now only float or complex‐float are acceptable:
-            if not (np.issubdtype(x.dtype, np.floating) or
-                    np.issubdtype(x.dtype, np.complexfloating)):
-                raise TypeError(f"Input {i} has unsupported dtype {x.dtype}")
+            # Check empty
+            if tensor.size == 0:
+                raise ValueError(f"Input {idx} is empty tensor")
 
-            if x.size == 0:
-                raise ValueError(f"Input {i} is empty array")
+            # Promote integer‐typed Tensors to float
+            if tensor.dtype.kind in ("i", "u"):
+                tensor = tensor.astype("float64")
 
-            if not np.all(np.isfinite(x)):
-                count_bad = np.sum(~np.isfinite(x))
-                raise ValueError(f"Input {i} contains non‐finite values: {count_bad} elements")
+            # Check finiteness via tensor.data
+            arr = tensor.data
+            if not np.isfinite(arr).all():
+                count_bad = int((~np.isfinite(arr)).sum())
+                raise ValueError(f"Input {idx} contains non-finite values: {count_bad}")
 
-            sanitized.append(x)
+            # Finally cast to work_dtype
+            tensor = tensor.astype(self.work_dtype)
+            sanitized.append(tensor)
 
-        # Replace inputs tuple with sanitized (possibly cast) arrays:
-        inputs = tuple(sanitized)
-
-        # Test‐evaluate func(*inputs, **kwargs) exactly as before:
+        # Test a single call: func(*sanitized)
         try:
-            test_output = func(*inputs, **kwargs)
-            test_output = np.asarray(test_output)
-            if test_output.size == 0:
-                raise ValueError("Function returns empty array")
-            if not np.all(np.isfinite(test_output)):
-                raise ValueError("Function returns non‐finite values")
+            out = func(*sanitized, **kwargs)
+            if isinstance(out, Variable):
+                out = out.value
+            if not isinstance(out, Tensor):
+                raise ValueError("Function must return a Tensor or Variable")
+            if out.size == 0:
+                raise ValueError("Function returns empty tensor")
+            if not np.isfinite(out.data).all():
+                raise ValueError("Function returns non-finite values")
         except Exception as e:
-            raise RuntimeError(f"Function evaluation test failed: {e}")
+            raise RuntimeError(f"Function evaluation test failed: {e}") from e
 
-        # Finally, store the sanitized inputs to be used downstream:
-        self.original_inputs = [x.astype(self.work_dtype) for x in inputs]
-        self.current_inputs = [x.copy() for x in self.original_inputs]
+        # Store them (we never mutate these lists in place)
+        self.original_inputs = sanitized[:]  
+        self.current_inputs = sanitized[:]   
 
-    def _get_finite_difference_stencil(self, order: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Get optimized finite difference coefficients for maximum accuracy"""
+    def _get_finite_difference_stencil(self, order: int) -> tuple[Tensor, Tensor]:
+        """Return (coefficients, points) as Tensors, based on the requested order."""
         stencils = {
-            2: {
-                'coefficients': np.array([-1.0, 1.0]) / 1.0,
-                'points': np.array([-1, 1])
-            },
+            2: {"coefficients": [-1.0, 1.0], "points": [-1, 1]},
             4: {
-                'coefficients': np.array([1.0, -8.0, 8.0, -1.0]) / 12.0,
-                'points': np.array([-2, -1, 1, 2])
+                "coefficients": [1.0, -8.0, 8.0, -1.0],
+                "divisor": 12.0,
+                "points": [-2, -1, 1, 2],
             },
             6: {
-                'coefficients': np.array([-1.0, 9.0, -45.0, 45.0, -9.0, 1.0]) / 60.0,
-                'points': np.array([-3, -2, -1, 1, 2, 3])
+                "coefficients": [-1.0, 9.0, -45.0, 45.0, -9.0, 1.0],
+                "divisor": 60.0,
+                "points": [-3, -2, -1, 1, 2, 3],
             },
             8: {
-                'coefficients': np.array([3.0, -32.0, 168.0, -672.0, 672.0, -168.0, 32.0, -3.0]) / 840.0,
-                'points': np.array([-4, -3, -2, -1, 1, 2, 3, 4])
-            }
+                "coefficients": [3.0, -32.0, 168.0, -672.0, 672.0, -168.0, 32.0, -3.0],
+                "divisor": 840.0,
+                "points": [-4, -3, -2, -1, 1, 2, 3, 4],
+            },
         }
-
         if order not in stencils:
             raise ValueError(f"Unsupported finite difference order: {order}")
 
-        stencil = stencils[order]
-        return stencil['coefficients'], stencil['points']
+        data = stencils[order]
+        coeffs_list = data["coefficients"]
+        if "divisor" in data:
+            coeffs_array = np.array(coeffs_list, dtype=self.work_dtype) / data["divisor"]
+        else:
+            coeffs_array = np.array(coeffs_list, dtype=self.work_dtype)
+        points_array = np.array(data["points"], dtype=self.real_dtype)
+
+        # Wrap into Tensors
+        coeffs = Tensor(coeffs_array, dtype=coeffs_array.dtype)
+        points = Tensor(points_array, dtype=points_array.dtype)
+        return coeffs, points
 
     def _find_optimal_step_size(
         self,
         func: Callable,
-        x: np.ndarray,
+        x: Tensor,
         idx: int,
         element_idx: int,
         direction: str,
-        kwargs: Dict[str, Any]
+        kwargs: dict[str, Any],
     ) -> float:
         """
-        Find optimal step size with improved error handling.
-        Fixed to avoid issues when error estimates are very small.
+        Search for the step size (scalar float) that minimizes the local error estimate.
+        All Tensor perturbations are created anew (never in place).
         """
-        x_flat = x.ravel()
-        original_val = x_flat[element_idx]
 
-        # Initial step size estimate based on function and input characteristics
-        if direction == 'complex_step':
-            base_step = np.sqrt(self.machine_eps) * max(abs(original_val), 1.0)
+        # Flatten x to grab the single element
+        x_flat = x.flatten()
+        orig_val = x_flat[element_idx].item()  # Python scalar
+
+        # Base‐step estimate
+        if direction == "complex_step":
+            base = np.sqrt(self.machine_eps) * max(abs(orig_val), 1.0)
         else:
-            # If we're in "real"/"imag" mode, we pick scale from the real or imag part
-            scale = max(abs(original_val.real if direction == 'real' else original_val.imag), 1.0)
-            base_step = (self.machine_eps ** (1.0 / (self.config.max_order + 2))) * scale
+            if isinstance(orig_val, complex):
+                scale = max(abs(orig_val.real), abs(orig_val.imag), 1.0)
+            else:
+                scale = max(abs(orig_val), 1.0)
+            base = (self.machine_eps ** (1.0 / (self.config.max_order + 2))) * scale
 
         if not self.config.use_optimal_step_search:
-            return np.clip(base_step, self.config.min_step_size, self.config.max_step_size)
+            return float(np.clip(base, self.config.min_step_size, self.config.max_step_size))
 
-        def error_estimate(log_step: float) -> float:
-            """Estimate total error for a given step size"""
-            step = np.exp(log_step)
-            if step < self.config.min_step_size or step > self.config.max_step_size:
+        def error_estimate(log_h: float) -> float:
+            h = float(np.exp(log_h))
+            if h < self.config.min_step_size or h > self.config.max_step_size:
                 return 1e10
 
             try:
-                if direction == 'complex_step':
-                    x_pert = x_flat.copy().astype(self.work_dtype)
-                    x_pert[element_idx] = original_val + 1j * step
-                    f_pert = self._call_function_safe(func, idx, x_pert.reshape(x.shape), kwargs)
+                if direction == "complex_step":
+                    # Build a mask of zeros, except +i*h at index element_idx
+                    n = x_flat.size
+                    mask_real_list = [0.0] * n
+                    mask_imag_list = [0.0] * n
+                    mask_imag_list[element_idx] = h
+                    mask_imag = Tensor(np.array(mask_imag_list, dtype=self.real_dtype))
 
-                    deriv1 = f_pert.ravel()[0].imag / step
-                    x_pert[element_idx] = original_val + 1j * (step / 2)
-                    f_pert_half = self._call_function_safe(func, idx, x_pert.reshape(x.shape), kwargs)
-                    deriv2 = f_pert_half.ravel()[0].imag / (step / 2)
+                    # base complex‐typed Tensor:
+                    base_real = x_flat.real()
+                    base_imag = x_flat.imag()
+                    base_complex = Tensor(base_real, dtype=self.work_dtype) + (
+                        Tensor(base_imag, dtype=self.work_dtype) * Tensor(1j, dtype=self.work_dtype)
+                    )
 
-                    error = abs(deriv1 - deriv2)
+                    perturbed = base_complex + (mask_imag * Tensor(1j, dtype=self.work_dtype))
+                    x_pert = perturbed.reshape(x.shape)
+                    f1 = self._call_function_safe(func, idx, x_pert, kwargs)
+                    deriv1 = float(f1.flatten()[0].imag().item()) / h
+
+                    # half‐step
+                    mask_imag_half_list = [val / 2.0 for val in mask_imag_list]
+                    mask_imag_half = Tensor(np.array(mask_imag_half_list, dtype=self.real_dtype))
+                    perturbed2 = base_complex + (mask_imag_half * Tensor(1j, dtype=self.work_dtype))
+                    x_pert2 = perturbed2.reshape(x.shape)
+                    f2 = self._call_function_safe(func, idx, x_pert2, kwargs)
+                    deriv2 = float(f2.flatten()[0].imag().item()) / (h / 2.0)
+
+                    err = abs(deriv1 - deriv2)
                 else:
+                    # high-order finite differences: “real” or “imag” direction
                     coeffs, points = self._get_finite_difference_stencil(self.config.max_order)
-                    f_vals1: List[float] = []
-                    f_vals2: List[float] = []
+                    n_out = self.f0.size
 
-                    for point in points:
-                        x_pert = x_flat.copy().astype(self.work_dtype)
-                        if direction == 'real':
-                            x_pert[element_idx] = (original_val.real + point * step) + 1j * original_val.imag
+                    # Evaluate at full‐step
+                    fvals_full = []
+                    for p in points.data.tolist():
+                        delta = float(p) * h
+                        if direction == "real":
+                            # build mask that adds delta to real part at element_idx
+                            mask_list = [0.0] * x_flat.size
+                            mask_list[element_idx] = delta
+                            mask = Tensor(np.array(mask_list, dtype=self.real_dtype))
+                            base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            pert = base + mask
+                        else:  # “imag” direction
+                            mask_list = [0.0] * x_flat.size
+                            mask_list[element_idx] = delta
+                            mask_im = Tensor(np.array(mask_list, dtype=self.real_dtype))
+                            base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            pert = base + (mask_im * Tensor(1j, dtype=self.work_dtype))
+
+                        x_p = pert.reshape(x.shape)
+                        fvals_full.append(self._call_function_safe(func, idx, x_p, kwargs))
+
+                    # Evaluate at half‐step
+                    fvals_half = []
+                    for p in points.data.tolist():
+                        delta = float(p) * (h / 2.0)
+                        if direction == "real":
+                            mask_list2 = [0.0] * x_flat.size
+                            mask_list2[element_idx] = delta
+                            mask2 = Tensor(np.array(mask_list2, dtype=self.real_dtype))
+                            base2 = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            pert2 = base2 + mask2
                         else:
-                            x_pert[element_idx] = original_val.real + 1j * (original_val.imag + point * step)
+                            mask_list2 = [0.0] * x_flat.size
+                            mask_list2[element_idx] = delta
+                            mask_im2 = Tensor(np.array(mask_list2, dtype=self.real_dtype))
+                            base2 = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            pert2 = base2 + (mask_im2 * Tensor(1j, dtype=self.work_dtype))
 
-                        f_val1 = self._call_function_safe(func, idx, x_pert.reshape(x.shape), kwargs)
-                        f_vals1.append(f_val1.ravel()[0])
+                        x_p2 = pert2.reshape(x.shape)
+                        fvals_half.append(self._call_function_safe(func, idx, x_p2, kwargs))
 
-                        # half‐step
-                        if direction == 'real':
-                            x_pert[element_idx] = (original_val.real + point * (step / 2)) + 1j * original_val.imag
-                        else:
-                            x_pert[element_idx] = original_val.real + 1j * (original_val.imag + point * (step / 2))
+                    # Flatten and compute derivative estimates
+                    def extract_scalar_list(flist: list[Tensor]):
+                        # since we only care about the first output entry for step‐size error
+                        return [float(f.flatten()[0].item()) for f in flist]
 
-                        f_val2 = self._call_function_safe(func, idx, x_pert.reshape(x.shape), kwargs)
-                        f_vals2.append(f_val2.ravel()[0])
+                    vals_full = extract_scalar_list(fvals_full)
+                    vals_half = extract_scalar_list(fvals_half)
 
-                    deriv1 = sum(c * f for c, f in zip(coeffs, f_vals1)) / step
-                    deriv2 = sum(c * f for c, f in zip(coeffs, f_vals2)) / (step / 2)
-                    error = abs(deriv1 - deriv2) / (2**self.config.max_order - 1)
+                    # d_full and d_half as lists of n_out floats
+                    d_full = []
+                    d_half = []
+                    coeffs_list = coeffs.data.tolist()
+                    for j in range(n_out):
+                        num_full = sum(coeffs_list[k] * float(fvals_full[k].flatten()[j].item())
+                                       for k in range(len(coeffs_list)))
+                        d_full.append(num_full / h)
 
-                return float(error) + self.machine_eps
+                        num_half = sum(coeffs_list[k] * float(fvals_half[k].flatten()[j].item())
+                                       for k in range(len(coeffs_list)))
+                        d_half.append(num_half / (h / 2.0))
 
+                    # Richardson error estimate
+                    err = max(abs(dh - df) for dh, df in zip(d_half, d_full)) / (2 ** self.config.max_order - 1)
+
+                return float(err + self.machine_eps)
             except Exception:
                 return 1e10
 
         try:
-            result = minimize_scalar(
+            res = minimize_scalar(
                 error_estimate,
                 bounds=(np.log(self.config.min_step_size), np.log(self.config.max_step_size)),
-                method='bounded',
-                options={'xatol': self.config.step_optimization_tolerance}
+                method="bounded",
+                options={"xatol": self.config.step_optimization_tolerance},
             )
-            optimal_step = np.exp(result.x)
+            optimal = float(np.exp(res.x))
         except Exception:
-            optimal_step = base_step
+            optimal = base
 
         if self.config.verbose:
-            print(f"Optimal step size for element {element_idx}, direction {direction}: {optimal_step:.2e}")
-
-        return optimal_step
+            print(
+                f"Optimal step size for element {element_idx}, direction {direction}: {optimal:.2e}"
+            )
+        return float(np.clip(optimal, self.config.min_step_size, self.config.max_step_size))
 
     def _call_function_safe(
         self,
         func: Callable,
         input_idx: int,
-        perturbed_input: np.ndarray,
-        kwargs: Dict[str, Any]
-    ) -> np.ndarray:
-        """Safely call function with comprehensive error handling and caching"""
-        cache_key = (input_idx, self._robust_hash(perturbed_input))
+        perturbed_input: Tensor,
+        kwargs: dict[str, Any],
+    ) -> Tensor:
+        """
+        Call func(*…) safely, without ever mutating self.current_inputs in place.
+        Caches based on (input_idx, hash(perturbed_input)).
+        """
+        key = (input_idx, self._robust_hash(perturbed_input))
+        if key in self.cache:
+            return self.cache[key]
 
-        if cache_key in self.cache:
-            return self.cache[cache_key]
-
-        # Manage cache size
+        # Evict if too large
         if len(self.cache) > 50000:
-            keys_to_remove = list(self.cache.keys())[: len(self.cache) // 10]
-            for key in keys_to_remove:
-                del self.cache[key]
+            to_remove = list(self.cache.keys())[: len(self.cache) // 10]
+            for k in to_remove:
+                del self.cache[k]
 
         try:
-            # Store original inputs (so we can restore after calling)
-            original_inputs = [x.copy() for x in self.current_inputs]
+            # Build a fresh list of inputs, replacing only index=input_idx
+            inputs_for_call = [
+                (perturbed_input if i == input_idx else orig)
+                for i, orig in enumerate(self.current_inputs)
+            ]
+            result = func(*inputs_for_call, **kwargs)
+            if isinstance(result, Variable):
+                result = result.value
+            if not isinstance(result, Tensor):
+                raise ValueError("Function must return a Tensor or Variable")
 
-            # Replace the perturbed input
-            self.current_inputs[input_idx] = perturbed_input
+            result = result.astype(self.work_dtype)
 
-            # Call function
-            result = func(*self.current_inputs, **kwargs)
-            result = np.asarray(result, dtype=self.work_dtype)
-
-            # Validate result shape
             if result.shape != self.f0_shape:
-                raise ValueError(f"Function output shape changed: {result.shape} vs {self.f0_shape}")
+                raise ValueError(
+                    f"Function output shape changed: {result.shape} vs {self.f0_shape}"
+                )
 
-            if not np.all(np.isfinite(result)):
-                warnings.warn("Function output contains non‐finite values")
-                result = np.where(np.isfinite(result), result, 0.0)
+            # Replace any non-finite entries with zero (using a temporary numpy array)
+            data_arr = result.data
+            if not np.isfinite(data_arr).all():
+                warnings.warn("Function output contains non-finite values", stacklevel=2)
+                copy_arr = data_arr.copy()
+                copy_arr[~np.isfinite(copy_arr)] = 0.0
+                result = Tensor(copy_arr, dtype=copy_arr.dtype)
 
-            # Cache and restore
-            self.cache[cache_key] = result
+            self.cache[key] = result
             self.evaluation_count += 1
-            self.current_inputs = original_inputs
-
             return result
 
         except Exception as e:
-            if hasattr(self, 'original_inputs'):
-                self.current_inputs = [x.copy() for x in self.original_inputs]
-            raise RuntimeError(f"Function evaluation failed: {e}")
+            raise RuntimeError(f"Function evaluation failed: {e}") from e
 
     def _compute_complex_step_derivative(
-        self,
-        func: Callable,
-        x: np.ndarray,
-        input_idx: int,
-        kwargs: Dict[str, Any]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        self, func: Callable, x: Tensor, input_idx: int, kwargs: dict[str, Any]
+    ) -> tuple[Tensor, Tensor]:
         """
-        Compute derivatives using complex‐step differentiation.
-        Now produces full Jacobian matrix for each input element.
+        Compute ∂f/∂z and ∂f/∂z̄ by complex‐step on a real‐typed input x.
+        We build each x_pert by adding a freshly constructed “mask” Tensor
+        of shape x_flat, never mutating x_flat itself.
         """
-        x_flat = x.ravel()
-        n_inputs = x_flat.size
-        n_outputs = self.f0.size
+        x_flat = x.flatten()
+        n_in = x_flat.size
+        n_out = self.f0.size
 
-        grad_z = np.zeros((n_outputs, n_inputs), dtype=self.work_dtype)
-        grad_conj_z = np.zeros((n_outputs, n_inputs), dtype=self.work_dtype)
+        grad_z = zeros((n_out, n_in), dtype=self.work_dtype)
+        grad_conj_z = zeros((n_out, n_in), dtype=self.work_dtype)
 
-        for i in range(n_inputs):
-            original_val = x_flat[i]
-
+        for i in range(n_in):
+            orig = x_flat[i].item()
+            # Pick step size
             if self.config.adaptive_step:
-                step_size = self._find_optimal_step_size(func, x, input_idx, i, 'complex_step', kwargs)
+                h = self._find_optimal_step_size(func, x, input_idx, i, "complex_step", kwargs)
             else:
-                step_size = np.sqrt(self.machine_eps) * max(abs(np.real(original_val)), abs(np.imag(original_val)), 1.0)
+                scale = abs(orig) if not isinstance(orig, complex) else max(abs(orig.real), abs(orig.imag))
+                scale = max(scale, 1.0)
+                h = np.sqrt(self.machine_eps) * scale
 
-            self.step_size_history.append((step_size, 0.0))
+            self.step_size_history.append((h, 0.0))
 
-            x_pert = x_flat.copy().astype(self.work_dtype)
-            x_pert[i] = original_val + 1j * step_size
+            # Build mask_imag_list: zeros except index i is h
+            mask_list = [0.0] * n_in
+            mask_list[i] = h
+            mask_imag = Tensor(np.array(mask_list, dtype=self.real_dtype))
 
-            f_pert = self._call_function_safe(func, input_idx, x_pert.reshape(x.shape), kwargs)
-            f_pert_flat = f_pert.ravel()
+            # Base complex‐typed Tensor from x_flat
+            base_real = x_flat.real()
+            base_imag = x_flat.imag()
+            base_complex = Tensor(base_real, dtype=self.work_dtype) + (
+                Tensor(base_imag, dtype=self.work_dtype) * Tensor(1j, dtype=self.work_dtype)
+            )
 
-            for j in range(n_outputs):
-                # (f(x+ i⋅h) – f(x)) / (i⋅h)
-                grad_z[j, i] = (f_pert_flat[j] - self.f0.ravel()[j]) / (1j * step_size)
-                # ∂f/∂z̄ = 0 for an analytic (real‐to‐complex) path
-                grad_conj_z[j, i] = 0.0
+            pert_flat = base_complex + (mask_imag * Tensor(1j, dtype=self.work_dtype))
+            x_pert = pert_flat.reshape(x.shape)
 
-        output_shape = self.f0.shape + x.shape
-        return grad_z.reshape(output_shape), grad_conj_z.reshape(output_shape)
+            f_pert = self._call_function_safe(func, input_idx, x_pert, kwargs)
+            f_pert_flat = f_pert.flatten()
+            f0_flat = self.f0.flatten()
+
+            for j in range(n_out):
+                diff = f_pert_flat[j] - f0_flat[j]
+                grad_z = grad_z  # (we'll overwrite via Tensor indexing)
+                # But since grad_z is a Tensor, we cannot do grad_z[j,i] = ...
+                # Instead, extract as numpy, modify, and wrap again at the very end.
+                # However, the provided Tensor class forbids in-place assignment.
+                # So we’ll create a small 2D numpy array to hold one column, then reinsert it:
+                col_arr = grad_z.data[:, :]  # read the entire (n_out, n_in) as numpy
+                col_arr = col_arr.copy()     # mutable copy
+                col_arr[j, i] = complex(diff.item() / (1j * h))
+                grad_z = Tensor(col_arr.reshape((n_out, n_in)), dtype=col_arr.dtype)
+
+                # ∂f/∂z̄ = 0 for analytic f
+                col_arr2 = grad_conj_z.data.copy()
+                col_arr2[j, i] = 0.0
+                grad_conj_z = Tensor(col_arr2.reshape((n_out, n_in)), dtype=col_arr2.dtype)
+
+        out_shape = self.f0.shape + x.shape
+        grad_z = grad_z.reshape(out_shape)
+        grad_conj_z = grad_conj_z.reshape(out_shape)
+        return grad_z, grad_conj_z
 
     def _compute_finite_difference_derivative(
-        self,
-        func: Callable,
-        x: np.ndarray,
-        input_idx: int,
-        kwargs: Dict[str, Any]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        self, func: Callable, x: Tensor, input_idx: int, kwargs: dict[str, Any]
+    ) -> tuple[Tensor, Tensor]:
         """
-        Compute derivatives using high‐order finite differences on complex‐typed inputs.
+        Compute ∂f/∂z and ∂f/∂z̄ by high-order finite differences on a complex-typed input x.
+        No in-place ops: whenever we need to perturb x_flat at index i, we build a fresh mask list.
         """
-        x_flat = x.ravel()
-        n_inputs = x_flat.size
-        n_outputs = self.f0.size
+        x_flat = x.flatten()
+        n_in = x_flat.size
+        n_out = self.f0.size
 
-        grad_z = np.zeros((n_outputs, n_inputs), dtype=self.work_dtype)
-        grad_conj_z = np.zeros((n_outputs, n_inputs), dtype=self.work_dtype)
+        grad_z = zeros((n_out, n_in), dtype=self.work_dtype)
+        grad_conj_z = zeros((n_out, n_in), dtype=self.work_dtype)
 
         coeffs, points = self._get_finite_difference_stencil(self.config.max_order)
+        coeffs_list = coeffs.data.tolist()
+        points_list = points.data.tolist()
 
-        for i in range(n_inputs):
-            original_val = x_flat[i]
+        for i in range(n_in):
+            orig = x_flat[i].item()
 
+            # Step sizes in real/imag
             if self.config.adaptive_step:
-                eps_real = self._find_optimal_step_size(func, x, input_idx, i, 'real', kwargs)
-                eps_imag = self._find_optimal_step_size(func, x, input_idx, i, 'imag', kwargs)
+                eps_r = self._find_optimal_step_size(func, x, input_idx, i, "real", kwargs)
+                eps_i = self._find_optimal_step_size(func, x, input_idx, i, "imag", kwargs)
             else:
-                scale_real = max(abs(original_val.real), 1.0)
-                scale_imag = max(abs(original_val.imag), 1.0)
-                order_factor = 1.0 / (self.config.max_order + 1)
-                eps_real = (self.machine_eps ** order_factor) * scale_real
-                eps_imag = (self.machine_eps ** order_factor) * scale_imag
-
-            self.step_size_history.append((eps_real, eps_imag))
-
-            def create_perturbation(delta: float, direction: str) -> np.ndarray:
-                y = x_flat.copy().astype(self.work_dtype)
-                if direction == 'real':
-                    y[i] = (original_val.real + delta) + 1j * original_val.imag
+                if isinstance(orig, complex):
+                    scale_r = max(abs(orig.real), 1.0)
+                    scale_i = max(abs(orig.imag), 1.0)
                 else:
-                    y[i] = original_val.real + 1j * (original_val.imag + delta)
-                return y.reshape(x.shape)
+                    scale_r = max(abs(orig), 1.0)
+                    scale_i = 1.0
+                factor = 1.0 / (self.config.max_order + 1)
+                eps_r = (self.machine_eps ** factor) * scale_r
+                eps_i = (self.machine_eps ** factor) * scale_i
 
-            # ∂/∂x (real part) via high‐order FD + optional Richardson:
+            self.step_size_history.append((eps_r, eps_i))
+
+            def make_perturbed(delta: float, dir_flag: str) -> Tensor:
+                """
+                Build a new Tensor of shape x.shape, where only x_flat[i] is perturbed:
+                - If dir_flag=="real", add +delta to real part
+                - If dir_flag=="imag", add +delta to imag part
+                """
+                n = x_flat.size
+                if dir_flag == "real":
+                    mask_list = [0.0] * n
+                    mask_list[i] = delta
+                    mask = Tensor(np.array(mask_list, dtype=self.real_dtype))
+                    base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                    pert_flat = base + mask
+                else:  # "imag"
+                    mask_list = [0.0] * n
+                    mask_list[i] = delta
+                    mask_im = Tensor(np.array(mask_list, dtype=self.real_dtype))
+                    base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                    pert_flat = base + (mask_im * Tensor(1j, dtype=self.work_dtype))
+
+                return pert_flat.reshape(x.shape)
+
+            # === Real-part derivative (possibly Richardson) ===
             if self.config.richardson_extrapolation:
-                # first with step = eps_real
-                f_vals_h = [
-                    self._call_function_safe(func, input_idx, create_perturbation(pt * eps_real, 'real'), kwargs)
-                    for pt in points
-                ]
-                dfx_h = [
-                    sum(c * f.ravel()[j] for c, f in zip(coeffs, f_vals_h)) / eps_real
-                    for j in range(n_outputs)
-                ]
-
-                # second with half‐step = eps_real/2
-                f_vals_h2 = [
+                f_full = [
                     self._call_function_safe(
-                        func, input_idx,
-                        create_perturbation(pt * (eps_real / 2), 'real'),
-                        kwargs
+                        func, input_idx, make_perturbed(pt * eps_r, "real"), kwargs
                     )
-                    for pt in points
+                    for pt in points_list
                 ]
-                dfx_h2 = [
-                    sum(c * f.ravel()[j] for c, f in zip(coeffs, f_vals_h2)) / (eps_real / 2)
-                    for j in range(n_outputs)
+                f_half = [
+                    self._call_function_safe(
+                        func, input_idx, make_perturbed(pt * (eps_r / 2.0), "real"), kwargs
+                    )
+                    for pt in points_list
                 ]
 
-                dfx = [
-                    (2**self.config.max_order * h2 - h) / (2**self.config.max_order - 1)
-                    for h, h2 in zip(dfx_h, dfx_h2)
+                d_full = []
+                d_half = []
+                for j in range(n_out):
+                    num_f = sum(
+                        coeffs_list[k] * f_full[k].flatten()[j].item()
+                        for k in range(len(coeffs_list))
+                    )
+                    d_full.append(num_f / eps_r)
+
+                    num_h = sum(
+                        coeffs_list[k] * f_half[k].flatten()[j].item()
+                        for k in range(len(coeffs_list))
+                    )
+                    d_half.append(num_h / (eps_r / 2.0))
+
+                d_real = [
+                    ((2 ** self.config.max_order) * dh - df) / (2 ** self.config.max_order - 1)
+                    for df, dh in zip(d_full, d_half)
                 ]
             else:
-                f_vals_real = [
-                    self._call_function_safe(func, input_idx, create_perturbation(pt * eps_real, 'real'), kwargs)
-                    for pt in points
-                ]
-                dfx = [
-                    sum(c * f.ravel()[j] for c, f in zip(coeffs, f_vals_real)) / eps_real
-                    for j in range(n_outputs)
-                ]
-
-            # ∂/∂y (imaginary part) via high‐order FD + optional Richardson:
-            if self.config.richardson_extrapolation:
-                f_vals_h = [
-                    self._call_function_safe(func, input_idx, create_perturbation(pt * eps_imag, 'imag'), kwargs)
-                    for pt in points
-                ]
-                dfy_h = [
-                    sum(c * f.ravel()[j] for c, f in zip(coeffs, f_vals_h)) / eps_imag
-                    for j in range(n_outputs)
-                ]
-
-                f_vals_h2 = [
+                f_vals = [
                     self._call_function_safe(
-                        func, input_idx,
-                        create_perturbation(pt * (eps_imag / 2), 'imag'),
-                        kwargs
+                        func, input_idx, make_perturbed(pt * eps_r, "real"), kwargs
                     )
-                    for pt in points
+                    for pt in points_list
                 ]
-                dfy_h2 = [
-                    sum(c * f.ravel()[j] for c, f in zip(coeffs, f_vals_h2)) / (eps_imag / 2)
-                    for j in range(n_outputs)
+                d_real = []
+                for j in range(n_out):
+                    num = sum(
+                        coeffs_list[k] * f_vals[k].flatten()[j].item()
+                        for k in range(len(coeffs_list))
+                    )
+                    d_real.append(num / eps_r)
+
+            # === Imag-part derivative (possibly Richardson) ===
+            if self.config.richardson_extrapolation:
+                f_full_i = [
+                    self._call_function_safe(
+                        func, input_idx, make_perturbed(pt * eps_i, "imag"), kwargs
+                    )
+                    for pt in points_list
+                ]
+                f_half_i = [
+                    self._call_function_safe(
+                        func, input_idx, make_perturbed(pt * (eps_i / 2.0), "imag"), kwargs
+                    )
+                    for pt in points_list
                 ]
 
-                dfy = [
-                    (2**self.config.max_order * h2 - h) / (2**self.config.max_order - 1)
-                    for h, h2 in zip(dfy_h, dfy_h2)
+                d_full_i = []
+                d_half_i = []
+                for j in range(n_out):
+                    num_fi = sum(
+                        coeffs_list[k] * f_full_i[k].flatten()[j].item()
+                        for k in range(len(coeffs_list))
+                    )
+                    d_full_i.append(num_fi / eps_i)
+
+                    num_hi = sum(
+                        coeffs_list[k] * f_half_i[k].flatten()[j].item()
+                        for k in range(len(coeffs_list))
+                    )
+                    d_half_i.append(num_hi / (eps_i / 2.0))
+
+                d_imag = [
+                    ((2 ** self.config.max_order) * dhi - dfi) / (2 ** self.config.max_order - 1)
+                    for dfi, dhi in zip(d_full_i, d_half_i)
                 ]
             else:
-                f_vals_imag = [
-                    self._call_function_safe(func, input_idx, create_perturbation(pt * eps_imag, 'imag'), kwargs)
-                    for pt in points
+                f_vals_i = [
+                    self._call_function_safe(
+                        func, input_idx, make_perturbed(pt * eps_i, "imag"), kwargs
+                    )
+                    for pt in points_list
                 ]
-                dfy = [
-                    sum(c * f.ravel()[j] for c, f in zip(coeffs, f_vals_imag)) / eps_imag
-                    for j in range(n_outputs)
-                ]
+                d_imag = []
+                for j in range(n_out):
+                    num_i = sum(
+                        coeffs_list[k] * f_vals_i[k].flatten()[j].item()
+                        for k in range(len(coeffs_list))
+                    )
+                    d_imag.append(num_i / eps_i)
 
-            for j in range(n_outputs):
-                # Wirtinger formulas:
-                #   ∂f/∂z  =  0.5 * (            ∂f/∂x  – i⋅∂f/∂y )
-                #   ∂f/∂z̄ =  0.5 * (            ∂f/∂x  + i⋅∂f/∂y )
-                grad_z[j, i] = 0.5 * (dfx[j] - 1j * dfy[j])
-                grad_conj_z[j, i] = 0.5 * (dfx[j] + 1j * dfy[j])
+            # ==== Assemble Wirtinger partials into grad_z and grad_conj_z ====
+            # Since grad_z is a read-only Tensor, extract its data as numpy, modify the column, wrap back
+            gz_arr = grad_z.data.copy()
+            gc_arr = grad_conj_z.data.copy()
+            for j in range(n_out):
+                re_val = d_real[j]
+                im_val = d_imag[j]
+                gz_arr[j, i] = 0.5 * (re_val - 1j * im_val)
+                gc_arr[j, i] = 0.5 * (re_val + 1j * im_val)
 
-                if (abs(dfx[j]) > self.config.condition_threshold or
-                    abs(dfy[j]) > self.config.condition_threshold):
+                if abs(re_val) > self.config.condition_threshold or abs(im_val) > self.config.condition_threshold:
                     warnings.warn(
-                        f"Large derivative detected at output {j}, input {i}: "
-                        f"|∂f/∂x|={abs(dfx[j]):.2e}, |∂f/∂y|={abs(dfy[j]):.2e}"
+                        f"Large derivative at output {j}, input {i}: "
+                        f"|∂f/∂x|={abs(re_val):.2e}, |∂f/∂y|={abs(im_val):.2e}",
+                        stacklevel=2,
                     )
 
-        output_shape = self.f0.shape + x.shape
-        return grad_z.reshape(output_shape), grad_conj_z.reshape(output_shape)
+            grad_z = Tensor(gz_arr, dtype=gz_arr.dtype)
+            grad_conj_z = Tensor(gc_arr, dtype=gc_arr.dtype)
+
+        out_shape = self.f0.shape + x.shape
+        return grad_z.reshape(out_shape), grad_conj_z.reshape(out_shape)
 
     def compute_derivatives(
         self,
-        func: Callable[..., np.ndarray],
-        inputs: Tuple[np.ndarray, ...],
-        kwargs: Optional[Dict[str, Any]] = None
-    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+        func: Callable[..., Tensor | Variable],
+        inputs: tuple[Tensor | Variable, ...],
+        kwargs: dict[str, Any] | None = None,
+    ) -> list[tuple[Tensor, Tensor]]:
         """
-        Main method to compute Wirtinger derivatives with maximum accuracy.
-
-        Returns a list of (∂f/∂z, ∂f/∂z̄) tuples, one for each input array.
-        Each tuple contains arrays with shape (output_shape + input_shape).
+        Compute Wirtinger derivatives for each input; returns a list of
+        (∂f/∂z, ∂f/∂z̄) pairs.  No in-place ops on any Tensor anywhere.
         """
         if kwargs is None:
             kwargs = {}
 
-        start_time = time.time()
+        start = time.time()
 
-        # --- Input validation (and integer→float promotion) happens here ---
+        # 1) Validate inputs (stores self.current_inputs, self.original_inputs)
         self._validate_inputs(func, inputs, kwargs)
 
-        # At this point, self.current_inputs / self.original_inputs have been set
-        # to float‐promoted arrays (dtype=float64 for real inputs, or complex128
-        # if originally complex).  Now evaluate f0 and proceed exactly as before:
-
+        # 2) Evaluate f0 once
         f0 = func(*self.current_inputs, **kwargs)
-        self.f0 = np.asarray(f0, dtype=self.work_dtype)
+        if isinstance(f0, Variable):
+            f0 = f0.value
+        self.f0 = f0.astype(self.work_dtype)
         self.f0_shape = self.f0.shape
-        self.f0_norm = np.linalg.norm(self.f0)
+        self.f0_norm = float(self.f0.norm().item())
 
         if self.config.verbose:
             print(f"Function output shape: {self.f0_shape}")
@@ -510,49 +678,52 @@ class WirtingerDifferentiator:
         self.step_size_history.clear()
         self.cache.clear()
 
-        grads: List[Tuple[np.ndarray, np.ndarray]] = []
+        grads: list[tuple[Tensor, Tensor]] = []
 
         for idx, x in enumerate(self.current_inputs):
+            is_complex = (x.dtype.kind == "c")
             if self.config.verbose:
-                print(f"\nProcessing input {idx}: shape={x.shape}, dtype={x.dtype}, complex={np.iscomplexobj(x)}")
+                print(
+                    f"\nProcessing input {idx}: shape={x.shape}, dtype={x.dtype}, complex={is_complex}"
+                )
 
-            is_complex = np.iscomplexobj(x)
             if not is_complex:
-                grad_z, grad_conj_z = self._compute_complex_step_derivative(func, x, idx, kwargs)
+                gz, gc = self._compute_complex_step_derivative(func, x, idx, kwargs)
             else:
-                grad_z, grad_conj_z = self._compute_finite_difference_derivative(func, x, idx, kwargs)
+                gz, gc = self._compute_finite_difference_derivative(func, x, idx, kwargs)
 
-            # If the original caller said “return real if input was real,” strip the imaginary parts
+            # Convert output dtypes if requested
             if self.config.return_real_if_input_real and not is_complex:
-                grad_z = grad_z.real.astype(np.float64)
-                grad_conj_z = grad_conj_z.real.astype(np.float64)
+                gz = gz.real().astype(self.real_dtype)
+                gc = gc.real().astype(self.real_dtype)
             elif not self.config.high_precision:
                 target_dtype = np.complex128 if is_complex else x.dtype
-                grad_z = grad_z.astype(target_dtype)
-                grad_conj_z = grad_conj_z.astype(target_dtype)
+                gz = gz.astype(target_dtype)
+                gc = gc.astype(target_dtype)
 
-            grads.append((grad_z, grad_conj_z))
+            grads.append((gz, gc))
 
             if self.config.verbose:
-                print(f"Input {idx} completed:")
-                print(f"  Jacobian shape: {grad_z.shape}")
-                print(f"  max |∂f/∂z| = {np.max(np.abs(grad_z)):.2e}")
-                print(f"  max |∂f/∂z̄| = {np.max(np.abs(grad_conj_z)):.2e}")
+                print(f"Input {idx} done:")
+                print(f"  Jacobian shape: {gz.shape}")
+                max_z = float(gz.abs().max().item())
+                max_c = float(gc.abs().max().item())
+                print(f"  max |∂f/∂z| = {max_z:.2e}")
+                print(f"  max |∂f/∂z̄| = {max_c:.2e}")
 
-        computation_time = time.time() - start_time
+        elapsed = time.time() - start
         if self.config.verbose:
-            print(f"\nComputation completed in {computation_time:.3f} seconds")
+            print(f"\nComputation completed in {elapsed:.3f} seconds")
             print(f"Total function evaluations: {self.evaluation_count}")
             print(f"Cache entries: {len(self.cache)}")
 
         return grads
 
 
-# Convenience wrapper
 def numerical_derivative(
-    func: Callable[..., np.ndarray],
-    inputs: Tuple[np.ndarray, ...],
-    kwargs: Optional[Dict[str, Any]] = None,
+    func: Callable[..., Tensor | Variable],
+    inputs: tuple[Tensor | Variable, ...],
+    kwargs: dict[str, Any] | None = None,
     *,
     verbose: bool = False,
     return_real_if_input_real: bool = True,
@@ -562,10 +733,10 @@ def numerical_derivative(
     richardson_extrapolation: bool = True,
     condition_threshold: float = 1e12,
     use_optimal_step_search: bool = True,
-) -> List[Tuple[np.ndarray, np.ndarray]]:
+) -> list[tuple[Tensor, Tensor]]:
     """
-    Convenience wrapper for the WirtingerDifferentiator class.
-    Returns full Jacobian matrices as requested.
+    Convenience wrapper around WirtingerDifferentiator that never mutates
+    any Tensor in place.
     """
     config = DerivativeConfig(
         verbose=verbose,
@@ -577,31 +748,28 @@ def numerical_derivative(
         condition_threshold=condition_threshold,
         use_optimal_step_search=use_optimal_step_search,
     )
+    diff = WirtingerDifferentiator(config)
+    return diff.compute_derivatives(func, inputs, kwargs)
 
-    differentiator = WirtingerDifferentiator(config)
-    return differentiator.compute_derivatives(func, inputs, kwargs)
 
-
-# Example usage—now supporting integer inputs seamlessly:
+# Example usage
 if __name__ == "__main__":
+
     def test_func(x, y):
-        # x can be real (float or int) → becomes float64 internally
-        # y can be complex (complex‐typed) → stays complex128
-        return np.array([x[0]**2, x[1]**2, y[0] + y[1]])
+        # x is real‐typed → promoted. y is complex‐typed → stays complex
+        return Tensor([x[0] ** 2, x[1] ** 2, y[0] + y[1]])
 
-    # Real input given as integers:
-    x_int = np.array([1, 2], dtype=np.int64)
-    # Complex input stays as complex:
-    y_cplx = np.array([1 + 1j, 2 + 2j], dtype=np.complex128)
+    x_int = Tensor([1, 2], dtype="int64")
+    y_cplx = Tensor([1 + 1j, 2 + 2j], dtype="complex128")
 
-    print("Testing with integer input (auto‐promoted) and complex input:")
+    print("Testing with integer (auto‒promoted) and complex inputs:")
     grads = numerical_derivative(test_func, (x_int, y_cplx), verbose=True)
 
-    print("\nGradient w.r.t. x (integer‐input → promoted to float):")
-    print(f"  ∂f/∂x shape: {grads[0][0].shape}")  # should be (3, 2)
-    print(f"  ∂f/∂x values:\n{grads[0][0]}")
+    print("\nGradient w.r.t. x:")
+    print(f"  ∂f/∂x shape: {grads[0][0].shape}")  # (3,2)
+    print(f"  ∂f/∂x values:\n{grads[0][0].numpy()}")
 
-    print("\nGradient w.r.t. y (complex input):")
-    print(f"  ∂f/∂z shape: {grads[1][0].shape}")    # should be (3, 2)
-    print(f"  ∂f/∂z values:\n{grads[1][0]}")
-    print(f"  ∂f/∂z̄ values:\n{grads[1][1]}")
+    print("\nGradient w.r.t. y:")
+    print(f"  ∂f/∂z shape: {grads[1][0].shape}")  # (3,2)
+    print(f"  ∂f/∂z values:\n{grads[1][0].numpy()}")
+    print(f"  ∂f/∂z̄ values:\n{grads[1][1].numpy()}")

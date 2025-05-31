@@ -1,5 +1,5 @@
-from network.tape import GradientTape, GRADIENTS
-from network.optimizers import *
+from network.tape import GradientTape
+from network.optimizers import AdaDelta, AdaGrad, AdamOptimizer, Momentum, RMSProp, SGD, UltimateOptimizer
 from network.types import Variable
 import numpy as np
 
@@ -14,11 +14,12 @@ opt = AdamOptimizer(1e-3)
 steps = int(1e4)
 
 def func(x):
-    res = x
+    res = Variable()
+    res += x ** 2
     return res
 
 def losss(x):
-    return np.mean(np.sqrt(np.conj(target - x) * (target - x)))
+    return (np.abs(x-target)**2)
 
 def run_optimization():
     print("Step\tw value\tLoss")
@@ -29,13 +30,11 @@ def run_optimization():
             loss = losss(out)
 
         holo, anti = tape.gradient(loss, w)
-        # print(tape._nodes_in_order)
 
-        grad = holo + anti
+        grad = holo
         opt.apply_gradients([(grad, w)])
 
         if (i + 1) % (steps // 10) == 0:
-            print(f"grad: {grad}\tholo: {holo}\tanti: {anti}")
             print(f"{i+1}\tw = {w}\tloss = {loss}\tgrad_ho = {holo}\tgrad_anti = {anti}")
 
         if np.all(loss < 1e-32):

@@ -2,7 +2,6 @@ from network.tape import GradientTape, GRADIENTS
 from network.types import Variable
 import numpy as np
 
-del GRADIENTS['conjugate']
 GRADIENTS.clear()
 
 x = Variable([1.0, 2.0, 3.0], dtype=np.float64)
@@ -19,7 +18,5 @@ with GradientTape() as tape:
 dx, dy = tape.gradient(z, [x, y])
 print("∂z/∂x =", np.round(dx, 3))
 print("∂z/∂y =", np.round(dy, 3))
-
-tape.print_graph(z)
 
 

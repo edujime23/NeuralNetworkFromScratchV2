@@ -2,10 +2,11 @@ from network.types import Variable
 from network.tape import GradientTape
 import numpy as np
 
-x = Variable([1.0, 2.0, 3.0], dtype=np.float32, name="x")
+x = Variable([1+1j, 2+2j, 3+3j], dtype=np.complex128, name="x")
 
 def func(x):
-    res = x ** 2
+    res = Variable()
+    res += x**2
     return res
 
 with GradientTape() as tape:

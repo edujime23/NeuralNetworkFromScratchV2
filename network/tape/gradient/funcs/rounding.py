@@ -1,12 +1,11 @@
-from typing import Tuple
 import numpy as np
+
+from ....types import Tensor
+
 
 class RoundingGradients:
     @staticmethod
-    def floor(
-        grad_output: np.ndarray,
-        inputs: Tuple[np.ndarray, ...]
-    ):
+    def floor(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -21,10 +20,7 @@ class RoundingGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def ceil(
-        grad_output: np.ndarray,
-        inputs: Tuple[np.ndarray, ...]
-    ):
+    def ceil(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -39,10 +35,7 @@ class RoundingGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def round(
-        grad_output: np.ndarray,
-        inputs: Tuple[np.ndarray, ...]
-    ):
+    def round(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -57,10 +50,7 @@ class RoundingGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def trunc(
-        grad_output: np.ndarray,
-        inputs: Tuple[np.ndarray, ...]
-    ):
+    def trunc(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         inp = inputs[0]
 
         if isinstance(grad_output, tuple):

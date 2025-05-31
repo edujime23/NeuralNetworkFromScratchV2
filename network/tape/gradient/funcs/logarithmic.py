@@ -1,12 +1,12 @@
-from typing import Tuple, Any
 import warnings
 import numpy as np
+from ....types import Tensor
 
 class LogarithmicGradients:
     @staticmethod
     def log(
-        grad_output: Any,
-        inputs: Tuple[np.ndarray, ...]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         inp = inputs[0]
 
@@ -23,8 +23,8 @@ class LogarithmicGradients:
 
     @staticmethod
     def log2(
-        grad_output: Any,
-        inputs: Tuple[np.ndarray, ...]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         inp = inputs[0]
 
@@ -44,8 +44,8 @@ class LogarithmicGradients:
 
     @staticmethod
     def log10(
-        grad_output: Any,
-        inputs: Tuple[np.ndarray, ...]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         inp = inputs[0]
 
@@ -65,8 +65,8 @@ class LogarithmicGradients:
 
     @staticmethod
     def log1p(
-        grad_output: Any,
-        inputs: Tuple[np.ndarray, ...]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         inp = inputs[0]
 
@@ -83,8 +83,8 @@ class LogarithmicGradients:
 
     @staticmethod
     def logaddexp(
-        grad_output: Any,
-        inputs: Tuple[np.ndarray, np.ndarray]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         a, b = inputs
 
@@ -92,7 +92,7 @@ class LogarithmicGradients:
         dtype_ah = np.result_type(grad_output[1]) if isinstance(grad_output, tuple) else dtype_h
 
         if np.iscomplexobj(a) or np.iscomplexobj(b):
-            warnings.warn("Gradient of logaddexp is not well-defined for complex inputs. Returning zero gradients.")
+            warnings.warn("Gradient of logaddexp is not well-defined for complex inputs. Returning zero gradients.", stacklevel=2)
             zero_a = np.zeros_like(a, dtype=dtype_h)
             zero_b = np.zeros_like(b, dtype=dtype_h)
             if not isinstance(grad_output, tuple):
@@ -123,8 +123,8 @@ class LogarithmicGradients:
 
     @staticmethod
     def logaddexp2(
-        grad_output: Any,
-        inputs: Tuple[np.ndarray, np.ndarray]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         a, b = inputs
 
@@ -132,7 +132,7 @@ class LogarithmicGradients:
         dtype_ah = np.result_type(grad_output[1]) if isinstance(grad_output, tuple) else dtype_h
 
         if np.iscomplexobj(a) or np.iscomplexobj(b):
-            warnings.warn("Gradient of logaddexp2 is not well-defined for complex inputs. Returning zero gradients.")
+            warnings.warn("Gradient of logaddexp2 is not well-defined for complex inputs. Returning zero gradients.", stacklevel=2)
             zero_a = np.zeros_like(a, dtype=dtype_h)
             zero_b = np.zeros_like(b, dtype=dtype_h)
             if not isinstance(grad_output, tuple):

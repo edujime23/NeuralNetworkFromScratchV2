@@ -29,4 +29,13 @@ for gradients in (
     for name, func in gradients.__dict__.items():
         if name.startswith('__') or not callable(func):
             continue
-        GRADIENTS[name] = func   
+        GRADIENTS[name] = func
+
+__all__ = [
+    'GRADIENTS',
+    'numerical_derivative',
+    'WirtingerDifferentiator',
+    'DerivativeConfig'
+]
+
+__all__.extend(GRADIENTS.keys())

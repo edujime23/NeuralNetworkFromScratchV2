@@ -1,9 +1,13 @@
-from typing import Tuple, Any
 import numpy as np
+
+from ....types import Tensor
+
 
 class AngleGradients:
     @staticmethod
-    def degrees(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def degrees(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -19,7 +23,9 @@ class AngleGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def radians(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def radians(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -35,7 +41,9 @@ class AngleGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def deg2rad(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def deg2rad(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -51,7 +59,9 @@ class AngleGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def rad2deg(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def rad2deg(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):
@@ -67,7 +77,7 @@ class AngleGradients:
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def angle(grad_output: Any, inputs: Tuple[np.ndarray, ...]):
+    def angle(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         x = inputs[0]
 
         if isinstance(grad_output, tuple):

@@ -1,15 +1,19 @@
-from typing import Optional, Tuple, Any, Union, List
-import numpy as np
 import warnings
+from typing import Any
+
+import numpy as np
+
+from ....types import Tensor
+
 
 class AggregationGradients:
     @staticmethod
     def sum(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool | None = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         inp = inputs[0]
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -24,13 +28,13 @@ class AggregationGradients:
 
     @staticmethod
     def mean(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[Union[int, Tuple[int, ...]]] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         inp = inputs[0]
-        shape = inp.shape if hasattr(inp, 'shape') else ()
+        shape = inp.shape if hasattr(inp, "shape") else ()
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -54,11 +58,11 @@ class AggregationGradients:
 
     @staticmethod
     def nanmean(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[Union[int, Tuple[int, ...]]] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         x = inputs[0]
         mask = ~np.isnan(x)
 
@@ -69,12 +73,14 @@ class AggregationGradients:
             grad_output_ah = np.zeros_like(grad_output_h)
 
         if axis is not None:
-            mask_sum = np.sum(mask, axis=axis, keepdims=bool(keepdims))
+            mask_sum = np.sum(mask, axis=axis, keepdims=keepdims)
         else:
             mask_sum = np.sum(mask)
 
         grad_h = grad_output_h * mask / (mask_sum + np.finfo(grad_output_h.dtype).eps)
-        grad_ah = grad_output_ah * mask / (mask_sum + np.finfo(grad_output_ah.dtype).eps)
+        grad_ah = (
+            grad_output_ah * mask / (mask_sum + np.finfo(grad_output_ah.dtype).eps)
+        )
 
         if np.iscomplexobj(x):
             grad_h = np.conj(grad_h)
@@ -84,13 +90,15 @@ class AggregationGradients:
 
     @staticmethod
     def prod(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool | None = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         inp = inputs[0]
-        eps = np.finfo(inp.dtype if np.issubdtype(inp.dtype, np.floating) else np.float32).eps
+        eps = np.finfo(
+            inp.dtype if np.issubdtype(inp.dtype, np.floating) else np.float32
+        ).eps
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -108,16 +116,26 @@ class AggregationGradients:
 
     @staticmethod
     def max(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         inp = inputs[0]
 
         if np.iscomplexobj(inp):
-            warnings.warn("Gradient of max is not well-defined for complex inputs. Returning zero gradients.")
-            zero_h = np.zeros_like(inp, dtype=grad_output[0].dtype if isinstance(grad_output, tuple) else grad_output.dtype)
+            warnings.warn(
+                "Gradient of max is not well-defined for complex inputs. Returning zero gradients.",
+                stacklevel=2,
+            )
+            zero_h = np.zeros_like(
+                inp,
+                dtype=(
+                    grad_output[0].dtype
+                    if isinstance(grad_output, tuple)
+                    else grad_output.dtype
+                ),
+            )
             zero_ah = np.zeros_like(inp, dtype=zero_h.dtype)
             return [(zero_h, zero_ah)]
 
@@ -128,7 +146,7 @@ class AggregationGradients:
             grad_output_ah = np.zeros_like(grad_output_h)
 
         max_val = np.max(inp, axis=axis, keepdims=True)
-        mask = (inp == max_val)
+        mask = inp == max_val
         num_max = np.sum(mask, axis=axis, keepdims=True)
 
         grad_h = grad_output_h * mask / (num_max + np.finfo(grad_output_h.dtype).eps)
@@ -138,15 +156,22 @@ class AggregationGradients:
 
     @staticmethod
     def maximum(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, Tensor],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         a, b = inputs
 
         if np.iscomplexobj(a) or np.iscomplexobj(b):
-            zero_a = np.zeros_like(a, dtype=grad_output[0].dtype if isinstance(grad_output, tuple) else grad_output.dtype)
+            zero_a = np.zeros_like(
+                a,
+                dtype=(
+                    grad_output[0].dtype
+                    if isinstance(grad_output, tuple)
+                    else grad_output.dtype
+                ),
+            )
             zero_b = np.zeros_like(b, dtype=zero_a.dtype)
             zero_ah_a = np.zeros_like(zero_a)
             zero_ah_b = np.zeros_like(zero_b)
@@ -164,8 +189,8 @@ class AggregationGradients:
             grad_a_ah = grad_output_ah * (a >= b)
             grad_b_ah = grad_output_ah * (b > a)
         else:
-            max_a = (a >= b)
-            max_b = (b > a)
+            max_a = a >= b
+            max_b = b > a
 
             grad_a_h = np.where(max_a, grad_output_h, 0)
             grad_b_h = np.where(max_b, grad_output_h, 0)
@@ -183,23 +208,30 @@ class AggregationGradients:
                 grad_a_ah = np.sum(grad_a_ah, axis=axis)
                 grad_b_ah = np.sum(grad_b_ah, axis=axis)
 
-        return [
-            (grad_a_h, grad_a_ah),
-            (grad_b_h, grad_b_ah)
-        ]
+        return [(grad_a_h, grad_a_ah), (grad_b_h, grad_b_ah)]
 
     @staticmethod
     def min(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         inp = inputs[0]
 
         if np.iscomplexobj(inp):
-            warnings.warn("Gradient of min is not well-defined for complex inputs. Returning zero gradients.")
-            zero_h = np.zeros_like(inp, dtype=grad_output[0].dtype if isinstance(grad_output, tuple) else grad_output.dtype)
+            warnings.warn(
+                "Gradient of min is not well-defined for complex inputs. Returning zero gradients.",
+                stacklevel=2,
+            )
+            zero_h = np.zeros_like(
+                inp,
+                dtype=(
+                    grad_output[0].dtype
+                    if isinstance(grad_output, tuple)
+                    else grad_output.dtype
+                ),
+            )
             zero_ah = np.zeros_like(inp, dtype=zero_h.dtype)
             return [(zero_h, zero_ah)]
 
@@ -210,7 +242,7 @@ class AggregationGradients:
             grad_output_ah = np.zeros_like(grad_output_h)
 
         min_val = np.min(inp, axis=axis, keepdims=True)
-        mask = (inp == min_val)
+        mask = inp == min_val
         num_min = np.sum(mask, axis=axis, keepdims=True)
 
         grad_h = grad_output_h * mask / (num_min + np.finfo(grad_output_h.dtype).eps)
@@ -220,15 +252,22 @@ class AggregationGradients:
 
     @staticmethod
     def minimum(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, Tensor],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         a, b = inputs
 
         if np.iscomplexobj(a) or np.iscomplexobj(b):
-            zero_a = np.zeros_like(a, dtype=grad_output[0].dtype if isinstance(grad_output, tuple) else grad_output.dtype)
+            zero_a = np.zeros_like(
+                a,
+                dtype=(
+                    grad_output[0].dtype
+                    if isinstance(grad_output, tuple)
+                    else grad_output.dtype
+                ),
+            )
             zero_b = np.zeros_like(b, dtype=zero_a.dtype)
             zero_ah_a = np.zeros_like(zero_a)
             zero_ah_b = np.zeros_like(zero_b)
@@ -246,8 +285,8 @@ class AggregationGradients:
             grad_a_ah = grad_output_ah * (a <= b)
             grad_b_ah = grad_output_ah * (b < a)
         else:
-            min_a = (a <= b)
-            min_b = (b < a)
+            min_a = a <= b
+            min_b = b < a
 
             grad_a_h = np.where(min_a, grad_output_h, 0)
             grad_b_h = np.where(min_b, grad_output_h, 0)
@@ -265,22 +304,19 @@ class AggregationGradients:
                 grad_a_ah = np.sum(grad_a_ah, axis=axis)
                 grad_b_ah = np.sum(grad_b_ah, axis=axis)
 
-        return [
-            (grad_a_h, grad_a_ah),
-            (grad_b_h, grad_b_ah)
-        ]
-    
+        return [(grad_a_h, grad_a_ah), (grad_b_h, grad_b_ah)]
+
     @staticmethod
     def std(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         x = inputs[0]
         n = x.size if axis is None else x.shape[axis]
-        xm = np.mean(x, axis=axis, keepdims=bool(keepdims))
-        std_x = np.std(x, axis=axis, keepdims=bool(keepdims))
+        xm = np.mean(x, axis=axis, keepdims=keepdims)
+        std_x = np.std(x, axis=axis, keepdims=keepdims)
         std_x_safe = std_x + np.finfo(x.dtype).eps
 
         if isinstance(grad_output, tuple):
@@ -300,11 +336,11 @@ class AggregationGradients:
 
     @staticmethod
     def nanstd(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         x = inputs[0]
         mask = ~np.isnan(x)
 
@@ -315,9 +351,9 @@ class AggregationGradients:
             grad_output_ah = np.zeros_like(grad_output_h)
 
         if axis is not None:
-            mask_sum = np.sum(mask, axis=axis, keepdims=bool(keepdims))
-            xm = np.nansum(x, axis=axis, keepdims=bool(keepdims)) / mask_sum
-            std_x = np.nanstd(x, axis=axis, keepdims=bool(keepdims))
+            mask_sum = np.sum(mask, axis=axis, keepdims=keepdims)
+            xm = np.nansum(x, axis=axis, keepdims=keepdims) / mask_sum
+            std_x = np.nanstd(x, axis=axis, keepdims=keepdims)
         else:
             mask_sum = np.sum(mask)
             xm = np.nansum(x) / mask_sum
@@ -336,14 +372,14 @@ class AggregationGradients:
 
     @staticmethod
     def var(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
-        axis: Optional[int] = None,
-        keepdims: Optional[bool] = False
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
+        axis: int | tuple[int, ...] | None = None,
+        keepdims: bool = False,
+    ) -> list[tuple[Tensor, Tensor]]:
         x = inputs[0]
         n = x.size if axis is None else x.shape[axis]
-        xm = np.mean(x, axis=axis, keepdims=bool(keepdims))
+        xm = np.mean(x, axis=axis, keepdims=keepdims)
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -362,13 +398,13 @@ class AggregationGradients:
 
     @staticmethod
     def nanvar(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], ...],
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...],
         **kwargs: dict[str, Any]
-    ) -> List[Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]]:
+    ) -> list[tuple[Tensor, Tensor]]:
         x = inputs[0]
-        axis = kwargs.get('axis', None)
-        keepdims = kwargs.get('keepdims', False)
+        axis = kwargs.get("axis", None)
+        keepdims = kwargs.get("keepdims", False)
         mask = ~np.isnan(x)
 
         if isinstance(grad_output, tuple):
