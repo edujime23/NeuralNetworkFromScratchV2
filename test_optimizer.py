@@ -1,5 +1,5 @@
 from network.tape import GradientTape
-from network.optimizers import AdaDelta, AdaGrad, AdamOptimizer, Momentum, RMSProp, SGD, UltimateOptimizer
+from network.optimizers import AdaDelta, AdaGrad, AdamOptimizer, Momentum, RMSProp, SGD
 from network.types import Variable
 import numpy as np
 
@@ -14,7 +14,7 @@ opt = AdamOptimizer(1e-3)
 steps = int(1e4)
 
 def func(x):
-    res = x ** 2
+    res = 2 ** (x ** x)
     return res
 
 def losss(x):

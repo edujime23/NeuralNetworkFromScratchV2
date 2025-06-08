@@ -53,9 +53,6 @@ class AdamOptimizer(Optimizer):
 
         m[...] = Tensor(m_new)
         v[...] = Tensor(v_new)
-        # Prevent NaN/Inf in update
-        if np.any(np.isnan(var_update)) or np.any(np.isinf(var_update)) or np.any(np.isneginf(var_update)):
-            var_update = np.zeros_like(var_update)
         var[...] -= Tensor(var_update)
 
     @staticmethod

@@ -104,109 +104,109 @@ class Variable:
     # --- Arithmetic Operators ---
     def __add__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor + other_val
+        return np.add(self.__tensor,  other_val)
 
     def __radd__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val + self.__tensor
+        return np.add(other_val, self.__tensor)
 
     def __sub__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor - other_val
+        return np.subtract(self.__tensor, other_val)
 
     def __rsub__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val - self.__tensor
+        return np.subtract(other_val, self.__tensor)
 
     def __mul__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor * other_val
+        return np.multiply(self.__tensor, other_val)
 
     def __rmul__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val * self.__tensor
+        return np.multiply(other_val, self.__tensor)
 
     def __truediv__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor / other_val
+        return np.true_divide(self.__tensor, other_val)
 
     def __rtruediv__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val / self.__tensor
+        return np.true_divide(other_val, self.__tensor)
 
     def __floordiv__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor // other_val
+        return np.floor_divide(self.__tensor, other_val)
 
     def __rfloordiv__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val // self.__tensor
+        return np.floor_divide(other_val, self.__tensor)
 
     def __mod__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor % other_val
+        return np.mod(self.__tensor, other_val)
 
     def __rmod__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val % self.__tensor
+        return np.mod(other_val, self.__tensor)
 
     def __pow__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor**other_val
+        return np.pow(self.__tensor, other_val)
 
     def __rpow__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val**self.__tensor
+        return np.pow(other_val, self.__tensor)
 
     # --- Bitwise Operators ---
     def __and__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor & other_val
+        return np.bitwise_and(self.__tensor, other_val)
 
     def __rand__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val & self.__tensor
+        return np.bitwise_and(other_val, self.__tensor)
 
     def __or__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor | other_val
+        return np.bitwise_or(self.__tensor, other_val)
 
     def __ror__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val | self.__tensor
+        return np.bitwise_or(other_val, self.__tensor)
 
     def __xor__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor ^ other_val
+        return np.bitwise_xor(self.__tensor, other_val)
 
     def __rxor__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val ^ self.__tensor
+        return np.bitwise_xor(other_val, self.__tensor)
 
     def __lshift__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor << other_val
+        return np.bitwise_left_shift(self.__tensor, other_val)
 
     def __rlshift__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val << self.__tensor
+        return np.bitwise_left_shift(other_val, self.__tensor)
 
     def __rshift__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor >> other_val
+        return np.bitwise_right_shift(self.__tensor, other_val)
 
     def __rrshift__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val >> self.__tensor
+        return np.bitwise_right_shift(other_val, self.__tensor)
 
     # --- Matmul Operator ---
     def __matmul__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return self.__tensor @ other_val
+        return np.matmul(self.__tensor, other_val)
 
     def __rmatmul__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return other_val @ self.__tensor
+        return np.matmul(other_val, self.__tensor)
 
     # --- In-place Operators ---
     def __iadd__(self, other) -> Tensor:

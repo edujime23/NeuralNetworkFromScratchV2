@@ -127,8 +127,8 @@ class ArithmeticGradients:
 
         if np.iscomplexobj(z):
             abs_z = np.abs(z) + epsilon
-            grad_h = grad_output_h * (np.conj(z) / (2 * abs_z))
-            grad_ah = grad_output_ah * (z / (2 * abs_z))
+            grad_h = grad_output_h * (np.conj(z) / (abs_z * 2))
+            grad_ah = grad_output_ah * (z / (abs_z * 2))
         else:
             sgn = np.sign(z)
             grad_h = grad_output_h * sgn

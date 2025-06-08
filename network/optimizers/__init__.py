@@ -5,5 +5,3 @@ from .rmsprop import RMSProp
 from .adagrad import AdaGrad
 from .adadelta import AdaDelta
 from .momentum import Momentum
-
-from .ultimate import UltimateOptimizer

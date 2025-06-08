@@ -291,6 +291,30 @@ class Tensor:
 
     def __matmul__(self, other) -> Self:
         return np.matmul(self, other)
+    
+    def __radd__(self, other) -> Self:
+        return np.add(other, self)
+
+    def __rsub__(self, other) -> Self:
+        return np.subtract(other, self)
+
+    def __rmul__(self, other) -> Self:
+        return np.multiply(other, self)
+
+    def __rtruediv__(self, other) -> Self:
+        return np.divide(other, self)
+
+    def __rfloordiv__(self, other) -> Self:
+        return np.floor_divide(other, self)
+
+    def __rmod__(self, other) -> Self:
+        return np.mod(other, self)
+
+    def __rpow__(self, other) -> Self:
+        return np.power(other, self)
+
+    def __rmatmul__(self, other) -> Self:
+        return np.matmul(other, self)
 
     def __neg__(self) -> Self:
         return np.negative(self)
