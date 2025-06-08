@@ -1,7 +1,7 @@
 import numpy as np
-from typing import List, Tuple
 from .base import Optimizer
 from numba import njit
+from ..types import Tensor
 
 
 class RMSProp(Optimizer):
@@ -21,19 +21,19 @@ class RMSProp(Optimizer):
         self.rho = rho
         self.epsilon = epsilon
 
-    def build(self, var_list: List[np.ndarray]) -> None:
+    def build(self, var_list: list[Tensor]) -> None:
         for var in var_list:
             self.add_slot(var, 'avg_sq_grad')
 
-    def update_step(self, grad: np.ndarray, var: np.ndarray) -> None:
+    def update_step(self, grad: Tensor, var: Tensor) -> None:
         avg_sq_grad = self.get_slot(var, 'avg_sq_grad')
 
         avg_sq_grad_new, var_update = self._update_step_math(
-            avg_sq_grad, grad, self.rho, self.epsilon, self.learning_rate
+            avg_sq_grad.numpy, grad.numpy, self.rho, self.epsilon, self.learning_rate
         )
 
-        avg_sq_grad[...] = avg_sq_grad_new
-        var[...] -= var_update
+        avg_sq_grad[...] = Tensor(avg_sq_grad_new)
+        var[...] -= Tensor(var_update)
 
     @staticmethod
     @njit(fastmath=True, cache=True, nogil=True)
@@ -43,7 +43,7 @@ class RMSProp(Optimizer):
         rho: float,
         epsilon: float,
         learning_rate: float
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         grad_sq = np.real(grad * np.conj(grad))
         avg_sq_grad_new = rho * avg_sq_grad + (1.0 - rho) * grad_sq
         var_update = learning_rate * grad / (np.sqrt(avg_sq_grad_new) + epsilon)
@@ -59,5 +59,5 @@ class RMSProp(Optimizer):
         return base_config
 
     @classmethod
-    def get_slot_names(cls) -> List[str]:
+    def get_slot_names(cls) -> list[str]:
         return ['avg_sq_grad']

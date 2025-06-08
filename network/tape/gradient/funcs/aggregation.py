@@ -4,6 +4,7 @@ from typing import Any
 import numpy as np
 
 from ....types import Tensor
+from .util import epsilon
 
 
 class AggregationGradients:
@@ -77,9 +78,9 @@ class AggregationGradients:
         else:
             mask_sum = np.sum(mask)
 
-        grad_h = grad_output_h * mask / (mask_sum + np.finfo(grad_output_h.dtype).eps)
+        grad_h = grad_output_h * mask / (mask_sum + epsilon)
         grad_ah = (
-            grad_output_ah * mask / (mask_sum + np.finfo(grad_output_ah.dtype).eps)
+            grad_output_ah * mask / (mask_sum + epsilon)
         )
 
         if np.iscomplexobj(x):
@@ -96,9 +97,6 @@ class AggregationGradients:
         keepdims: bool | None = False,
     ) -> list[tuple[Tensor, Tensor]]:
         inp = inputs[0]
-        eps = np.finfo(
-            inp.dtype if np.issubdtype(inp.dtype, np.floating) else np.float32
-        ).eps
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -109,8 +107,8 @@ class AggregationGradients:
         prod_conj_val = np.prod(np.conjugate(inp), axis=axis, keepdims=True)
         prod_conj_broadcasted = np.broadcast_to(prod_conj_val, inp.shape)
 
-        grad_h = grad_output_h * prod_conj_broadcasted / (np.conjugate(inp) + eps)
-        grad_ah = grad_output_ah * prod_conj_broadcasted / (np.conjugate(inp) + eps)
+        grad_h = grad_output_h * prod_conj_broadcasted / (np.conjugate(inp) + epsilon)
+        grad_ah = grad_output_ah * prod_conj_broadcasted / (np.conjugate(inp) + epsilon)
 
         return [(grad_h, grad_ah)]
 
@@ -149,8 +147,8 @@ class AggregationGradients:
         mask = inp == max_val
         num_max = np.sum(mask, axis=axis, keepdims=True)
 
-        grad_h = grad_output_h * mask / (num_max + np.finfo(grad_output_h.dtype).eps)
-        grad_ah = grad_output_ah * mask / (num_max + np.finfo(grad_output_ah.dtype).eps)
+        grad_h = grad_output_h * mask / (num_max + epsilon)
+        grad_ah = grad_output_ah * mask / (num_max + epsilon)
 
         return [(grad_h, grad_ah)]
 
@@ -245,8 +243,8 @@ class AggregationGradients:
         mask = inp == min_val
         num_min = np.sum(mask, axis=axis, keepdims=True)
 
-        grad_h = grad_output_h * mask / (num_min + np.finfo(grad_output_h.dtype).eps)
-        grad_ah = grad_output_ah * mask / (num_min + np.finfo(grad_output_ah.dtype).eps)
+        grad_h = grad_output_h * mask / (num_min + epsilon)
+        grad_ah = grad_output_ah * mask / (num_min + epsilon)
 
         return [(grad_h, grad_ah)]
 
@@ -317,7 +315,7 @@ class AggregationGradients:
         n = x.size if axis is None else x.shape[axis]
         xm = np.mean(x, axis=axis, keepdims=keepdims)
         std_x = np.std(x, axis=axis, keepdims=keepdims)
-        std_x_safe = std_x + np.finfo(x.dtype).eps
+        std_x_safe = std_x + epsilon
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -359,7 +357,7 @@ class AggregationGradients:
             xm = np.nansum(x) / mask_sum
             std_x = np.nanstd(x)
 
-        std_x_safe = std_x + np.finfo(grad_output_h.dtype).eps
+        std_x_safe = std_x + epsilon
 
         grad_h = grad_output_h * (x - xm) * mask / (mask_sum * std_x_safe)
         grad_ah = grad_output_ah * (x - xm) * mask / (mask_sum * std_x_safe)

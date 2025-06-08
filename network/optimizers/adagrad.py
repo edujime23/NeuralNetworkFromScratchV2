@@ -1,6 +1,6 @@
 import numpy as np
-from typing import List, Tuple, Optional
 from .base import Optimizer
+from ..types import Tensor
 from numba import njit
 
 
@@ -12,7 +12,7 @@ class AdaGrad(Optimizer):
     If epsilon is None, it defaults to np.finfo(np.float32).eps.
     """
 
-    def __init__(self, learning_rate: float = 0.01, epsilon: Optional[float] = None) -> None:
+    def __init__(self, learning_rate: float = 0.01, epsilon: float | None = None) -> None:
         super().__init__()
         self.learning_rate = learning_rate
         # If no epsilon provided, use a safe float32 machine epsilon
@@ -22,28 +22,28 @@ class AdaGrad(Optimizer):
             else float(np.finfo(np.float32).eps)
         )
 
-    def build(self, var_list: List[np.ndarray]) -> None:
+    def build(self, var_list: list[Tensor]) -> None:
         for var in var_list:
             self.add_slot(var, 'accumulated_grad')
 
-    def update_step(self, grad: np.ndarray, var: np.ndarray) -> None:
+    def update_step(self, grad: Tensor, var: Tensor) -> None:
         accumulated_grad = self.get_slot(var, 'accumulated_grad')
 
         accumulated_grad_new, var_update = self._update_step_math(
-            accumulated_grad,
-            grad,
+            accumulated_grad.numpy,
+            grad.numpy,
             self.learning_rate,
             self.epsilon
         )
 
         # Write updated accumulator back in place
-        accumulated_grad[...] = accumulated_grad_new
+        accumulated_grad[...] = Tensor(accumulated_grad_new)
 
         # Prevent NaN/Inf from propagating into var
         if np.any(np.isnan(var_update)) or np.any(np.isinf(var_update)):
             var_update = np.zeros_like(var_update)
 
-        var[...] -= var_update
+        var[...] -= Tensor(var_update)
 
     @staticmethod
     @njit(fastmath=True, cache=True, nogil=True)
@@ -52,7 +52,7 @@ class AdaGrad(Optimizer):
         grad: np.ndarray,
         learning_rate: float,
         epsilon: float
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Core AdaGrad math (Numba‐compiled). Denominator = sqrt(accumulated_grad_new + ε) + ε
         Floors the denominator with epsilon to avoid division by zero or underflow.
@@ -96,5 +96,5 @@ class AdaGrad(Optimizer):
         return base_config
 
     @classmethod
-    def get_slot_names(cls) -> List[str]:
+    def get_slot_names(cls) -> list[str]:
         return ['accumulated_grad']

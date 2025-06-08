@@ -10,6 +10,7 @@ from .shape import ShapeGradients
 from .special import SpecialGradients
 from .trigonometric import TrigonometricGradients
 from .numerical import numerical_derivative, WirtingerDifferentiator, DerivativeConfig
+from .util import complex_log, epsilon
 
 GRADIENTS: dict[str, object] = {}
 

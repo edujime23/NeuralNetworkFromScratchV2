@@ -4,6 +4,7 @@ import warnings
 from typing import Self
 
 import numpy as np
+from ..queues import tapes
 
 # Keep a reference to the original warnings.showwarning
 _ORIGINAL_SHOWWARNING = warnings.showwarning
@@ -36,12 +37,15 @@ class Tensor:
         dtype: np.dtype | str | None = None,
         name: str | None = None,
     ):
-        arr = np.asarray(value or np.zeros(shape) if shape else 0, dtype=dtype)
-        if shape is not None and arr.shape != shape:
-            try:
-                arr = arr.reshape(shape)
-            except ValueError:
-                raise ValueError(f"Shape mismatch: got {arr.shape}, expected {shape}") from None
+        if value is None:
+            arr = np.zeros(()) if shape is None else np.zeros(shape, dtype=dtype)
+        else:
+            arr = np.asarray(value, dtype=dtype)
+            if shape is not None and arr.shape != shape:
+                try:
+                    arr = arr.reshape(shape)
+                except ValueError as e:
+                    raise ValueError(f"Shape mismatch: got {arr.shape}, expected {shape}") from e
 
         self.__data = arr.copy()
         self.__data.setflags(write=False)
@@ -111,6 +115,7 @@ class Tensor:
         """tf.Tensor exposes .graph; here, always None."""
         return None
 
+    @property
     def numpy(self) -> np.ndarray:
         """Return a writable copy of the underlying array (like tf.Tensor.numpy())."""
         return self.data.copy()
@@ -164,8 +169,7 @@ class Tensor:
         return np.complex128(self.data)
 
     def __repr__(self) -> str:
-        data_str = repr(self.__data).removeprefix("array")
-        return f"Tensor{data_str}"
+        return f"Tensor{repr(self.data).removeprefix("array")}"
 
     @staticmethod
     def _custom_showwarning(message, category, filename, lineno, file=None, line=None):
@@ -188,12 +192,20 @@ class Tensor:
         _ORIGINAL_SHOWWARNING(message, category, target_file, target_lineno, file, line)
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-        # Extract raw NumPy arrays
+        # Build a parallel tuple of just the Tensor‐objects:
+        tensor_inputs = tuple(
+            inp if isinstance(inp, Tensor) else Tensor(inp)
+            for inp in inputs
+        )
+
+        # Extract raw NumPy arrays for the actual ufunc call:
         np_inputs = tuple(
-            inp.data if isinstance(inp, Tensor) else inp for inp in inputs
+            inp.data if isinstance(inp, Tensor) else inp
+            for inp in inputs
         )
         np_kwargs = {
-            k: (v.data if isinstance(v, Tensor) else v) for k, v in kwargs.items()
+            k: (v.data if isinstance(v, Tensor) else v)
+            for k, v in kwargs.items()
         }
 
         warnings.showwarning = self._custom_showwarning
@@ -202,28 +214,36 @@ class Tensor:
         finally:
             warnings.showwarning = _ORIGINAL_SHOWWARNING
 
-        # Wrap result back into Tensor
+        # Wrap the NumPy result into a fresh Tensor:
         if isinstance(result_array, np.ndarray):
             out = Tensor(result_array, dtype=result_array.dtype, name=None)
         else:
             out = Tensor(np.asarray(result_array), name=None)
 
-        # Simulate recording for autodiff (GradientTape)
-        with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
+        if tapes:
+            tapes[-1].record(
+                ufunc,
+                method,
+                tensor_inputs,
+                kwargs,
+                out,
+            )
 
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
-                    ufunc, method, inputs, kwargs, out
-                )
         return out
 
     def __array_function__(self, func, types, inputs, kwargs):
+        # Normalize the inputs into Tensors:
+        tensor_inputs = tuple(
+            inp if isinstance(inp, Tensor) else Tensor(inp)
+            for inp in inputs
+        )
         np_inputs = tuple(
-            inp.data if isinstance(inp, Tensor) else inp for inp in inputs
+            inp.data if isinstance(inp, Tensor) else inp
+            for inp in inputs
         )
         np_kwargs = {
-            k: (v.data if isinstance(v, Tensor) else v) for k, v in kwargs.items()
+            k: (v.data if isinstance(v, Tensor) else v)
+            for k, v in kwargs.items()
         }
 
         warnings.showwarning = self._custom_showwarning
@@ -237,60 +257,40 @@ class Tensor:
         else:
             out = Tensor(np.asarray(result_array), name=None)
 
-        with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
-                    func, "__call__", inputs, kwargs, out
-                )
+        if tapes:
+            tapes[-1].record(
+                func,
+                "__call__",
+                tensor_inputs,
+                kwargs,
+                out,
+            )
         return out
 
     # Arithmetic operators returning Tensor
     def __add__(self, other) -> Self:
         return np.add(self, other)
 
-    def __radd__(self, other) -> Self:
-        return np.add(other, self)
-
     def __sub__(self, other) -> Self:
         return np.subtract(self, other)
-
-    def __rsub__(self, other) -> Self:
-        return np.subtract(other, self)
 
     def __mul__(self, other) -> Self:
         return np.multiply(self, other)
 
-    def __rmul__(self, other) -> Self:
-        return np.multiply(other, self)
-
     def __truediv__(self, other) -> Self:
         return np.divide(self, other)
-
-    def __rtruediv__(self, other) -> Self:
-        return np.divide(other, self)
 
     def __floordiv__(self, other) -> Self:
         return np.floor_divide(self, other)
 
-    def __rfloordiv__(self, other) -> Self:
-        return np.floor_divide(other, self)
-
     def __mod__(self, other) -> Self:
         return np.mod(self, other)
-
-    def __rmod__(self, other) -> Self:
-        return np.mod(other, self)
 
     def __pow__(self, other) -> Self:
         return np.power(self, other)
 
     def __matmul__(self, other) -> Self:
         return np.matmul(self, other)
-
-    def __rmatmul__(self, other) -> Self:
-        return np.matmul(other, self)
 
     def __neg__(self) -> Self:
         return np.negative(self)
@@ -322,10 +322,8 @@ class Tensor:
         sliced = self.data[idx]
         out = Tensor(sliced, dtype=sliced.dtype, name=None)
         with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
+            if tapes:
+                tapes[-1].record(
                     np.ndarray.__getitem__, "__call__", (self,), {}, out
                 )
         return out
@@ -340,10 +338,8 @@ class Tensor:
         arr = self.data.reshape(*shape)
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
+            if tapes:
+                tapes[-1].record(
                     np.ndarray.reshape, "__call__", (self,), {"newshape": shape}, out
                 )
         return out
@@ -352,10 +348,8 @@ class Tensor:
         arr = self.data.transpose(*axes)
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
+            if tapes:
+                tapes[-1].record(
                     np.ndarray.transpose,
                     "__call__",
                     (self,),
@@ -373,10 +367,8 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=self.name)
         # Record for autodiff if a GradientTape is active
         with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
+            if tapes:
+                tapes[-1].record(
                     np.ndarray.flatten, "__call__", (self,), {}, out
                 )
         return out
@@ -392,10 +384,8 @@ class Tensor:
             warnings.showwarning = _ORIGINAL_SHOWWARNING
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
+            if tapes:
+                tapes[-1].record(
                     np.ndarray.sum,
                     "__call__",
                     (self,),
@@ -414,10 +404,8 @@ class Tensor:
             warnings.showwarning = _ORIGINAL_SHOWWARNING
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
-            from ..tape import GradientTape
-
-            if GradientTape._GRADIENTS_TAPES:
-                GradientTape._GRADIENTS_TAPES[-1].record(
+            if tapes:
+                tapes[-1].record(
                     np.ndarray.mean,
                     "__call__",
                     (self,),

@@ -14,8 +14,7 @@ opt = AdamOptimizer(1e-3)
 steps = int(1e4)
 
 def func(x):
-    res = Variable()
-    res += x ** 2
+    res = x ** 2
     return res
 
 def losss(x):
@@ -28,8 +27,10 @@ def run_optimization():
             tape.watch(w)
             out = func(w)
             loss = losss(out)
+            
+        grads = tape.gradient(loss, w)
 
-        holo, anti = tape.gradient(loss, w)
+        holo, anti = grads
 
         grad = holo
         opt.apply_gradients([(grad, w)])

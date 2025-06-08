@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple
+from ..types import Tensor
 from .base import Optimizer
 from numba import njit
 
@@ -15,19 +15,19 @@ class Momentum(Optimizer):
         self.learning_rate = learning_rate
         self.momentum = momentum
 
-    def build(self, var_list: List[np.ndarray]) -> None:
+    def build(self, var_list: list[Tensor]) -> None:
         for var in var_list:
             self.add_slot(var, 'velocity')
 
-    def update_step(self, grad: np.ndarray, var: np.ndarray) -> None:
+    def update_step(self, grad: Tensor, var: Tensor) -> None:
         velocity = self.get_slot(var, 'velocity')
 
         velocity_new, var_update = self._update_step_math(
-            velocity, grad, self.learning_rate, self.momentum
+            velocity.numpy, grad.numpy, self.learning_rate, self.momentum
         )
 
-        velocity[...] = velocity_new
-        var[...] -= var_update
+        velocity[...] = Tensor(velocity_new)
+        var[...] -= Tensor(var_update)
 
     @staticmethod
     @njit(fastmath=True, cache=True, nogil=True)
@@ -36,7 +36,7 @@ class Momentum(Optimizer):
         grad: np.ndarray,
         learning_rate: float,
         momentum: float
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         velocity_new = momentum * velocity + learning_rate * grad
         return velocity_new, velocity_new
 
@@ -49,5 +49,5 @@ class Momentum(Optimizer):
         return base_config
 
     @classmethod
-    def get_slot_names(cls) -> List[str]:
+    def get_slot_names(cls) -> list[str]:
         return ['velocity']

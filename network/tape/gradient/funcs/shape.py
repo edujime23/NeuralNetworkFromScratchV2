@@ -1,11 +1,11 @@
-from typing import Tuple
 import numpy as np
+from ....types import Tensor
 
 class ShapeGradients:
     @staticmethod
     def reshape(
-        grad_output: np.ndarray,
-        inputs: Tuple[np.ndarray, ...]
+        grad_output: Tensor | tuple[Tensor, Tensor],
+        inputs: tuple[Tensor, ...]
     ):
         x = inputs[0]
 

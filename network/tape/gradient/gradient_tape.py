@@ -10,6 +10,7 @@ import numpy as np
 
 from ...types import Tensor, Variable
 from .funcs import GRADIENTS, numerical_derivative
+from ...queues import tapes
 
 
 @dataclass
@@ -59,7 +60,6 @@ class GradientTape:
     Supports complex differentiation via separate slots for ∂/∂w and ∂/∂conj(w).
     """
 
-    _GRADIENTS_TAPES: list[GradientTape] = []
     _primitive_registry: dict[str, None] = {}
     _visit_stamp_counter: int = 1
 
@@ -77,9 +77,9 @@ class GradientTape:
             watch_accessed_variables: If True, auto-watch any Variable/Tensor when read.
             dtype: Force gradient computations to use specific dtype (e.g. np.float32 or np.complex128).
         """
-        # Maps Tensor‐id → OpNode
+        # Maps Tensor-id → OpNode
         self.result_to_node: dict[int, OpNode] = {}
-        # Maps Tensor‐id → Gradient (two Tensors)
+        # Maps Tensor-id → Gradient (two Tensors)
         self.grads: dict[int, Gradient] = {}
         # Set of Tensor ids we explicitly watch
         self.watched: set[int] = set()
@@ -94,11 +94,11 @@ class GradientTape:
         self._nodes_in_order: list[OpNode] = []
         self._next_creation_index = 0
 
-        # Cache seeds for ones and zeros so we don’t re‐allocate repeatedly
+        # Cache seeds for ones and zeros so we don't re-allocate repeatedly
         self._ones_seed: Tensor | None = None
         self._zeros_seed: Tensor | None = None
 
-        GradientTape._GRADIENTS_TAPES.append(self)
+        tapes.append(self)
 
     def __enter__(self) -> GradientTape:
         """Context manager entry—clear state if non-persistent."""
@@ -116,13 +116,13 @@ class GradientTape:
 
     def __exit__(self, *args: Any, **kwargs: Any) -> None:
         """Context manager exit—remove tape if non-persistent."""
-        if not self.persistent and self in GradientTape._GRADIENTS_TAPES:
-            GradientTape._GRADIENTS_TAPES.remove(self)
+        if not self.persistent and self in tapes:
+            tapes.remove(self)
 
     def delete(self) -> None:
         """Manually remove this tape from the global registry."""
-        if self in GradientTape._GRADIENTS_TAPES:
-            GradientTape._GRADIENTS_TAPES.remove(self)
+        if self in tapes:
+            tapes.remove(self)
 
     def watch(self, *objs: Tensor | Variable) -> None:
         """Explicitly mark Tensors/Variables for gradient tracking."""
@@ -133,7 +133,7 @@ class GradientTape:
                 self._watch(obj)
 
     def _watch(self, arr: Tensor) -> None:
-        """Internal helper to add this Tensor’s id to the watched set."""
+        """Internal helper to add this Tensor's id to the watched set."""
         self.watched.add(id(arr))
 
     def stop_gradient(self, x: Tensor) -> Tensor:
@@ -155,7 +155,7 @@ class GradientTape:
     def def_grad(cls, func: Callable[..., Any]) -> Callable[..., Any]:
         """
         Decorator to define a gradient function for a previously-registered primitive.
-        The gradient function name must be ‘<primitive>_grad’.
+        The gradient function name must be '<primitive>_grad'.
         """
         target_name = func.__name__.replace("_grad", "")
         if target_name not in cls._primitive_registry:
@@ -210,7 +210,6 @@ class GradientTape:
             elif isinstance(i, Tensor):
                 normalized_inputs.append(i)
             else:
-                # If it’s a raw NumPy array, wrap it immediately in a Tensor
                 normalized_inputs.append(Tensor(i))
         normalized_kwargs: dict[str, Any] = {
             k: v.value if isinstance(v, Variable) else v for k, v in kwargs.items()
@@ -227,7 +226,7 @@ class GradientTape:
     ) -> None:
         """
         Create an OpNode for this primitive call, link its parent nodes
-        based on ‘inputs’, and store it in self.result_to_node.
+        based on 'inputs', and store it in self.result_to_node.
         """
         # If result is not a Tensor or user flagged stop_gradient, do nothing
         if not isinstance(result, Tensor) or getattr(result, "_stop_gradient", False):
@@ -280,42 +279,32 @@ class GradientTape:
         normalized_inputs, normalized_kwargs = self._normalize_inputs(inputs, kwargs)
 
         # For each active tape, if any input is watched, record the new node
-        if GradientTape._GRADIENTS_TAPES:
-            if any(id(tensor) in (tape := GradientTape._GRADIENTS_TAPES[-1]).watched for tensor in normalized_inputs):
+        if tapes:
+            if any(id(tensor) in (tape := tapes[-1]).watched for tensor in normalized_inputs):
                 tape.watch(result_tensor, *normalized_inputs)
                 tape._create_and_link_op_node(
                     func, method, normalized_inputs, normalized_kwargs, result_tensor
                 )
 
-    def _unbroadcast_gradient(
-        self, grad: Tensor, original_shape: tuple[int, ...]
-    ) -> Tensor:
+    def _unbroadcast_gradient(self, grad: Tensor, original_shape: tuple[int, ...]) -> Tensor:
         """
-        Reverse NumPy‐style broadcasting by summing out any broadcasted dimensions.
-        Operates purely on Tensors, never returning a raw NumPy array.
+            Reverse NumPy-style broadcasting so that `grad` ends up with exactly `original_shape`.
         """
         if grad.shape == original_shape:
             return grad
 
-        # If grad is scalar-like (0‐D), expand to fill original_shape
-        if grad.ndim == 0:
-            fill_value = grad.item()  # a Python scalar
-            return Tensor(np.full(original_shape, fill_value, dtype=grad.dtype))
+        if grad.ndim == 0 and original_shape:
+            fill_value = grad.item()
+            return Tensor(
+                np.full(original_shape, fill_value, dtype=grad.dtype)
+            )
 
-        # Identify which leading dimensions were broadcast
-        ndim_diff = grad.ndim - len(original_shape)
-        axes_to_sum: list[int] = []
-        if ndim_diff > 0:
-            axes_to_sum.extend(range(ndim_diff))
+        while grad.ndim > len(original_shape):
+            grad = grad.sum(axis=0)
 
-        # Now check each trailing dimension
-        for i, dim_grad in enumerate(reversed(grad.shape)):
-            orig_dim = original_shape[::-1][i] if i < len(original_shape) else None
-            if orig_dim == 1 and dim_grad > 1:
-                axes_to_sum.append(grad.ndim - 1 - i)
-
-        if axes_to_sum:
-            grad = grad.sum(axis=tuple(axes_to_sum), keepdims=True)
+        for axis, orig_dim in enumerate(original_shape):
+            if orig_dim == 1 and grad.shape[axis] > 1:
+                grad = grad.sum(axis=axis, keepdims=True)
 
         return grad.reshape(original_shape)
 
@@ -362,7 +351,7 @@ class GradientTape:
             raw_grads = []
             for J_h, J_ah in approximations:
                 # Each J_h, J_ah is a NumPy array (Jacobian) for holomorphic/antiholomorphic parts
-                # We need to turn them into Tensors before dot‐product
+                # We need to turn them into Tensors before dot-product
                 J_h_t = Tensor(J_h)
                 J_ah_t = Tensor(J_ah)
                 gh = grad_res.holomorphic.dot(J_h_t) + grad_res.antiholomorphic.dot(
@@ -373,17 +362,17 @@ class GradientTape:
                 )
                 raw_grads.append((gh, gah))
         # raw_grads is now a list of tuples, but each component might be a NumPy array or a Tensor.
-        # We’ll normalize in the next step.
+        # We'll normalize in the next step.
         return raw_grads
 
     def _process_raw_gradients_format(
         self, raw_grads: Any, num_inputs: int
     ) -> tuple[tuple[Tensor | None, Tensor | None], ...]:
         """
-        Normalize gradient format so that each input’s gradient is a pair (gh, gah),
+        Normalize gradient format so that each input's gradient is a pair (gh, gah),
         both of which are Tensors (or None). Returns a tuple of length num_inputs.
         """
-        # 1) If raw_grads is a single tuple with two Tensors, wrap in a one‐element tuple
+        # 1) If raw_grads is a single tuple with two Tensors, wrap in a one-element tuple
         if not isinstance(raw_grads, tuple) or not all(
             isinstance(x, tuple) for x in raw_grads
         ):
@@ -409,7 +398,7 @@ class GradientTape:
         for grad_pair in raw_grads:
             if isinstance(grad_pair, tuple) and len(grad_pair) == 2:
                 gh, gah = grad_pair
-                # Wrap each in a Tensor if it’s a raw NumPy array
+                # Wrap each in a Tensor if it's a raw NumPy array
                 if isinstance(gh, np.ndarray):
                     gh = Tensor(gh)
                 if isinstance(gah, np.ndarray):
@@ -417,7 +406,7 @@ class GradientTape:
                 # If either is None, leave as None
                 processed.append((gh, gah))
             elif isinstance(grad_pair, Tensor):
-                # Single‐component gradient → treat as holomorphic, zero‐fill antiholo
+                # Single-component gradient → treat as holomorphic, zero-fill antiholo
                 processed.append((grad_pair, np.zeros_like(grad_pair)))
             else:
                 # Anything else → no gradient for that input
@@ -457,8 +446,8 @@ class GradientTape:
 
     def _gradient_recursive(self, node: OpNode, grad_res: Gradient) -> None:
         """
-        Recursively compute and propagate gradients from ‘node.result’ back to its inputs.
-        ‘grad_res’ is the Gradient(holomorphic, antiholomorphic) at node.result.
+        Recursively compute and propagate gradients from 'node.result' back to its inputs.
+        'grad_res' is the Gradient(holomorphic, antiholomorphic) at node.result.
         """
         raw_grads_for_inputs = self._compute_raw_gradients(node, grad_res)
         processed = self._process_raw_gradients_format(
@@ -491,7 +480,7 @@ class GradientTape:
 
     def _backpropagate(self, target_arr: Tensor) -> None:
         """
-        Perform reverse‐mode automatic differentiation from ‘target_arr’ downwards.
+        Perform reverse-mode automatic differentiation from 'target_arr' downwards.
         Only nodes reachable from target_arr (via parent pointers) receive nonzero grads.
         """
         root_node = self.result_to_node.get(id(target_arr))
@@ -509,7 +498,7 @@ class GradientTape:
                 continue
             node.last_visited = stamp
             stack.extend(parent for parent in node.parents if parent.last_visited != stamp)
-        # 2) Traverse nodes in reverse‐creation order, propagating gradients
+        # 2) Traverse nodes in reverse-creation order, propagating gradients
         for node in reversed(self._nodes_in_order):
             if node.last_visited != stamp:
                 continue
@@ -547,7 +536,7 @@ class GradientTape:
         unconnected_gradients: str = "none",
     ) -> tuple[Tensor, Tensor] | list[tuple[Tensor, Tensor] | None] | None:
         """
-        Compute gradients of ‘target’ w.r.t. ‘sources’, returning (holomorphic, antiholomorphic) pairs.
+        Compute gradients of 'target' w.r.t. 'sources', returning (holomorphic, antiholomorphic) pairs.
         If multiple sources, returns a list of pairs (or None for unconnected).
         """
         if self._used and not self.persistent:
@@ -578,7 +567,7 @@ class GradientTape:
         filtered_sources = [s for s in raw_sources if id(s) in self.watched]
 
         if not filtered_sources:
-            # If “zero,” return zero‐gradients for each requested source.
+            # If “zero,” return zero-gradients for each requested source.
             if unconnected_gradients == "zero":
                 result_list: list[tuple[Tensor, Tensor]] = []
                 for s in raw_sources:
@@ -590,7 +579,7 @@ class GradientTape:
             # Otherwise return a list of None
             return None if is_single else [None] * len(raw_sources)
 
-        # Determine initial gradient “seed” on target: either user‐provided or all‐ones
+        # Determine initial gradient “seed” on target: either user-provided or all-ones
         if output_gradients is not None:
             og_arr = (
                 output_gradients.value
@@ -655,7 +644,7 @@ class GradientTape:
     ) -> tuple[Tensor, Tensor] | None:
         """
         Internal helper for JVP/Jacobian: compute the gradient of target_arr wrt source_arr,
-        using ‘seed’ as ∂L/∂(target). Clears old grads, initializes the seed, backpropagates,
+        using 'seed' as ∂L/∂(target). Clears old grads, initializes the seed, backpropagates,
         and returns (holomorphic, antiholomorphic) pair for source_arr (or None).
         """
         self.grads.clear()
@@ -670,7 +659,7 @@ class GradientTape:
     @staticmethod
     def _jac_row_worker(args: tuple[Any, ...]) -> Tensor:
         """
-        Worker function for parallel Jacobian row computation. Should only see numpy‐pickleable args.
+        Worker function for parallel Jacobian row computation. Should only see numpy-pickleable args.
         Returns a flattened 1D numpy array representing one row of the Jacobian.
         """
         (
@@ -684,7 +673,7 @@ class GradientTape:
             forced_dtype,
         ) = args
 
-        # Create a unit‐vector “seed” in NumPy, then wrap as a Tensor
+        # Create a unit-vector “seed” in NumPy, then wrap as a Tensor
         flat_t_seed = np.zeros(shape_target, dtype=forced_dtype).reshape(-1)
         flat_t_seed[idx] = 1.0
         seed_np = flat_t_seed.reshape(shape_target)
@@ -694,7 +683,7 @@ class GradientTape:
         if og_np is not None:
             seed = seed * Tensor(og_np)
 
-        # Re‐wrap the raw NumPy buffers as Tensors for the inner tape
+        # Re-wrap the raw NumPy buffers as Tensors for the inner tape
         target_tensor = Tensor(target_np)
         source_tensor = Tensor(source_np)
 
@@ -868,7 +857,7 @@ class GradientTape:
             return (combined_grad_y * vec_arr).sum()
 
         warnings.warn(
-            "JVP for vector‐valued targets is not implemented as a true Jacobian-vector product. "
+            "JVP for vector-valued targets is not implemented as a true Jacobian-vector product. "
             "This call returns (∂f/∂x)^T @ vector instead. "
             "To compute an explicit JVP, use jacobian() and multiply.",
             stacklevel=2,
@@ -885,7 +874,7 @@ class GradientTape:
         vector: Tensor | Variable,
     ) -> Tensor:
         """
-        Vector‐Jacobian product (reverse‐mode AD). Returns Vector^T @ (∂f/∂x).
+        Vector-Jacobian product (reverse-mode AD). Returns Vector^T @ (∂f/∂x).
         """
         source_arr = source.value if isinstance(source, Variable) else source
         if not isinstance(source_arr, Tensor):
@@ -912,7 +901,7 @@ class GradientTape:
         self, f: Callable[[Tensor], Tensor], x: Tensor | Variable, order: int
     ) -> Tensor:
         """
-        Compute higher‐order derivative d^order f / dx^order recursively.
+        Compute higher-order derivative d^order f / dx^order recursively.
         Returns a Tensor of the same shape as x (for scalar functions) or shape+shape for vector functions.
         """
         x_arr = x.value if isinstance(x, Variable) else x
@@ -946,7 +935,7 @@ class GradientTape:
         n = x_arr.size
         hess_dtype = self._get_gradient_dtype(x_arr.dtype, self.forced_dtype)
 
-        # 1) Compute first‐order gradient g_i = ∂f/∂x_i
+        # 1) Compute first-order gradient g_i = ∂f/∂x_i
         with GradientTape(
             persistent=False,
             watch_accessed_variables=self.watch_on_read,

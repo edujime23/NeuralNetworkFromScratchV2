@@ -39,7 +39,6 @@ class AdamOptimizer(Optimizer):
         t = self.iterations + 1
         bias_correction_1 = 1 - self.beta_1**t
         bias_correction_2 = 1 - self.beta_2**t
-
         m_new, v_new, var_update = self._update_step_math(
             m.numpy,
             v.numpy,
@@ -55,9 +54,9 @@ class AdamOptimizer(Optimizer):
         m[...] = Tensor(m_new)
         v[...] = Tensor(v_new)
         # Prevent NaN/Inf in update
-        if np.any(np.isnan(var_update)) or np.any(np.isinf(var_update)):
+        if np.any(np.isnan(var_update)) or np.any(np.isinf(var_update)) or np.any(np.isneginf(var_update)):
             var_update = np.zeros_like(var_update)
-        var[...] -= var_update
+        var[...] -= Tensor(var_update)
 
     @staticmethod
     @njit(fastmath=True, cache=True, nogil=True)

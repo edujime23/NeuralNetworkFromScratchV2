@@ -41,7 +41,7 @@ class Variable:
 
     def assign(self, value: np.typing.ArrayLike) -> Self:
         self.__tensor = Tensor(
-            value, shape=self.__tensor.shape, dtype=self.__tensor.dtype
+            value, shape=self.__tensor.shape, dtype=self.__tensor.dtype, name=self.__tensor.name
         )
         return self
 
@@ -64,7 +64,7 @@ class Variable:
 
     @property
     def numpy(self) -> np.ndarray:
-        return self.__tensor.numpy()
+        return self.__tensor.numpy
 
     @property
     def trainable(self) -> bool:

@@ -1,44 +1,50 @@
-from typing import Tuple, Any, Union
 import numpy as np
+from .util import epsilon
+from ....types import Tensor
 
 class SpecialGradients:
     @staticmethod
-    def erf(grad_output: np.typing.NDArray[Any], inputs: Tuple[np.typing.NDArray[Any]]):
-        inp = inputs[0]
-        grad = grad_output * (2 / np.sqrt(np.pi)) * np.exp(-np.conjugate(inp)**2)
+    def erf(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (inp,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad = grad_output_h * (2 / np.sqrt(np.pi)) * np.exp(-np.conjugate(inp)**2)
         return [grad]
 
     @staticmethod
-    def erfc(grad_output: np.typing.NDArray[Any], inputs: Tuple[np.typing.NDArray[Any]]):
-        inp = inputs[0]
-        grad = -grad_output * (2 / np.sqrt(np.pi)) * np.exp(-np.conjugate(inp)**2)
+    def erfc(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (inp,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad = -grad_output_h * (2 / np.sqrt(np.pi)) * np.exp(-np.conjugate(inp)**2)
         return [grad]
 
     @staticmethod
-    def cbrt(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any]]
-    ):
-        z = inputs[0]
-        grad_output_h = grad_output[0] if isinstance(grad_output, tuple) else grad_output
-        eps = np.finfo(z.dtype).eps
-        grad_z_h = grad_output_h * (1/3) * np.power(z + eps, -2/3)
+    def cbrt(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (z,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad_z_h = grad_output_h * (1/3) * np.power(z + epsilon, -2/3)
         grad_z_ah = np.zeros_like(z)
         return [(grad_z_h, grad_z_ah)]
 
     @staticmethod
-    def heaviside(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any]]
-    ):
+    def heaviside(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         z, k = inputs
-        grad_output_h, grad_output_ah = grad_output if isinstance(grad_output, tuple) else (grad_output, np.zeros_like(grad_output))
-        eps = np.finfo(z.dtype).eps ** 0.5
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad_output_ah = (
+            grad_output[1] if isinstance(grad_output, tuple) else np.zeros_like(grad_output_h)
+        )
         abs_z = np.abs(z)
         abs_k = np.abs(k)
-        delta_mask = np.abs(abs_z - abs_k) < eps
-        z_unit = z / (abs_z + eps)
-        z_conj_unit = np.conj(z) / (abs_z + eps)
+        delta_mask = np.abs(abs_z - abs_k) < epsilon
+        z_unit = z / (abs_z + epsilon)
+        z_conj_unit = np.conj(z) / (abs_z + epsilon)
         grad_z_h = 0.5 * grad_output_h * z_conj_unit * delta_mask
         grad_z_ah = 0.5 * grad_output_ah * z_unit * delta_mask
         grad_k_h = np.zeros_like(k)
@@ -46,12 +52,14 @@ class SpecialGradients:
         return [(grad_z_h, grad_z_ah), (grad_k_h, grad_k_ah)]
 
     @staticmethod
-    def clip(
-        grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]],
-        inputs: Tuple[np.typing.NDArray[Any], np.typing.NDArray[Any], np.typing.NDArray[Any]]
-    ):
+    def clip(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         z, min_val, max_val = inputs
-        grad_output_h, grad_output_ah = grad_output if isinstance(grad_output, tuple) else (grad_output, np.zeros_like(grad_output))
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad_output_ah = (
+            grad_output[1] if isinstance(grad_output, tuple) else np.zeros_like(grad_output_h)
+        )
         real_z, imag_z = np.real(z), np.imag(z)
         real_min, imag_min = np.real(min_val), np.imag(min_val)
         real_max, imag_max = np.real(max_val), np.imag(max_val)
@@ -76,43 +84,62 @@ class SpecialGradients:
         ]
 
     @staticmethod
-    def sqrt(grad_output: np.typing.NDArray[Any], inputs: Tuple[np.typing.NDArray[Any]]):
-        inp = inputs[0]
-        sqrt_inp = np.sqrt(inp + np.finfo(inp.dtype).eps)
-        grad_h = grad_output / (2 * sqrt_inp)
-        grad_ah = np.zeros_like(grad_output)
+    def sqrt(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (inp,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        sqrt_inp = np.sqrt(inp + epsilon)
+        grad_h = grad_output_h / (sqrt_inp * 2)
+        grad_ah = np.zeros_like(grad_output_h)
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def real(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
-        z = inputs[0]
-        grad_output_h, grad_output_ah = grad_output if isinstance(grad_output, tuple) else (grad_output, np.zeros_like(grad_output))
+    def real(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (z,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad_output_ah = (
+            grad_output[1] if isinstance(grad_output, tuple) else np.zeros_like(grad_output_h)
+        )
         grad_h = grad_output_h * 0.5
         grad_ah = grad_output_ah * 0.5
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def imag(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
-        z = inputs[0]
-        grad_output_h, grad_output_ah = grad_output if isinstance(grad_output, tuple) else (grad_output, np.zeros_like(grad_output))
+    def imag(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (z,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad_output_ah = (
+            grad_output[1] if isinstance(grad_output, tuple) else np.zeros_like(grad_output_h)
+        )
         grad_h = grad_output_h * (-1j / 2)
         grad_ah = grad_output_ah * (1j / 2)
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def sign(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
-        z = inputs[0]
-        grad_output_h, grad_output_ah = grad_output if isinstance(grad_output, tuple) else (grad_output, np.zeros_like(grad_output))
-        eps = np.finfo(z.dtype).eps
-        abs_z = np.abs(z) + eps
+    def sign(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (z,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
+        grad_output_ah = (
+            grad_output[1] if isinstance(grad_output, tuple) else np.zeros_like(grad_output_h)
+        )
+        abs_z = np.abs(z) + epsilon
         grad_h = grad_output_h * (0.5 / abs_z)
         grad_ah = grad_output_ah * (-0.5 * z**2) / (abs_z**3)
         return [(grad_h, grad_ah)]
 
     @staticmethod
-    def conjugate(grad_output: Union[np.typing.NDArray[Any], Tuple[np.typing.NDArray[Any]]], inputs: Tuple[np.typing.NDArray[Any]]):
-        z = inputs[0]
-        grad_output_h = grad_output[0] if isinstance(grad_output, tuple) else grad_output
+    def conjugate(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+        (z,) = inputs
+        grad_output_h = (
+            grad_output[0] if isinstance(grad_output, tuple) else grad_output
+        )
         grad_h = np.zeros_like(z) if np.iscomplexobj(z) else grad_output_h
         grad_ah = grad_output_h if np.iscomplexobj(z) else np.zeros_like(z)
         return [(grad_h, grad_ah)]

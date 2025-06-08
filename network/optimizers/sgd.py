@@ -1,7 +1,7 @@
-import numpy as np
-from typing import List
+from ..types import Tensor
 from .base import Optimizer
 from numba import njit
+import numpy as np
 
 
 class SGD(Optimizer):
@@ -15,9 +15,9 @@ class SGD(Optimizer):
         super().__init__()
         self.learning_rate = learning_rate
 
-    def update_step(self, grad: np.ndarray, var: np.ndarray) -> None:
-        var_update = self._update_step_math(grad, self.learning_rate)
-        var[...] -= var_update
+    def update_step(self, grad: Tensor, var: Tensor) -> None:
+        var_update = self._update_step_math(grad.numpy, self.learning_rate)
+        var[...] -= Tensor(var_update)
 
     @staticmethod
     @njit(fastmath=True, cache=True, nogil=True)
@@ -30,5 +30,5 @@ class SGD(Optimizer):
         return base_config
 
     @classmethod
-    def get_slot_names(cls) -> List[str]:
+    def get_slot_names(cls) -> list[str]:
         return []

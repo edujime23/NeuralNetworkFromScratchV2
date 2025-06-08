@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Optional
+from ..types import Tensor
 from .base import Optimizer
 from numba import njit
 
@@ -12,7 +12,7 @@ class AdaDelta(Optimizer):
     If ε is None, it defaults to np.finfo(np.float32).eps.
     """
 
-    def __init__(self, rho: float = 0.95, epsilon: Optional[float] = None) -> None:
+    def __init__(self, rho: float = 0.95, epsilon: float | None = None) -> None:
         super().__init__()
         self.rho = rho
         # Use float32 machine-ε if none provided
@@ -22,12 +22,12 @@ class AdaDelta(Optimizer):
             else float(np.finfo(np.float32).eps)
         )
 
-    def build(self, var_list: List[np.ndarray]) -> None:
+    def build(self, var_list: list[Tensor]) -> None:
         for var in var_list:
             self.add_slot(var, 'accumulated_grad')
             self.add_slot(var, 'accumulated_update')
 
-    def update_step(self, grad: np.ndarray, var: np.ndarray) -> None:
+    def update_step(self, grad: Tensor, var: Tensor) -> None:
         accumulated_grad = self.get_slot(var, 'accumulated_grad')
         accumulated_update = self.get_slot(var, 'accumulated_update')
 
@@ -41,8 +41,8 @@ class AdaDelta(Optimizer):
         )
 
         # Write slots back in place
-        accumulated_grad[...] = accumulated_grad_new
-        accumulated_update[...] = accumulated_update_new
+        accumulated_grad[...] = Tensor(accumulated_grad_new)
+        accumulated_update[...] = Tensor(accumulated_update_new)
 
         # If var_update has NaN or Inf anywhere, zero out those entries
         if np.any(np.isnan(var_update)) or np.any(np.isinf(var_update)):
@@ -52,7 +52,7 @@ class AdaDelta(Optimizer):
                 np.zeros_like(var_update)
             )
 
-        var[...] -= var_update
+        var[...] -= Tensor(var_update)
 
     @staticmethod
     @njit(fastmath=True, cache=True, nogil=True)
@@ -62,7 +62,7 @@ class AdaDelta(Optimizer):
         grad: np.ndarray,
         rho: float,
         epsilon: float
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Core AdaDelta math (Numba-compiled). Floors denominators to ε to avoid division by zero.
         """
@@ -111,5 +111,5 @@ class AdaDelta(Optimizer):
         return base_config
 
     @classmethod
-    def get_slot_names(cls) -> List[str]:
+    def get_slot_names(cls) -> list[str]:
         return ['accumulated_grad', 'accumulated_update']

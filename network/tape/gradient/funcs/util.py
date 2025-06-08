@@ -1,9 +1,10 @@
-from typing import Callable, List, Optional, Tuple, Any
+from collections.abc import Callable
+from typing import Any
 import numpy as np
 from numba import vectorize, complex128, float64, int64
 from functools import wraps
 
-def alias(aliases: List[str]):
+def alias(aliases: list[str]):
     """Decorator to assign aliases to functions."""
     def decorator(func: Callable):
         func.__aliases__ = tuple(aliases)
@@ -38,3 +39,5 @@ def complex_log(z: Any) -> Any:
     if np.iscomplexobj(z_arr) or np.any(z_arr < 0):
         return complex_log_complex(z_arr)
     return complex_log_real(z_arr)
+
+epsilon = 1e-7

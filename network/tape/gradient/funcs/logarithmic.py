@@ -1,6 +1,7 @@
 import warnings
 import numpy as np
 from ....types import Tensor
+from .util import epsilon
 
 class LogarithmicGradients:
     @staticmethod
@@ -16,8 +17,8 @@ class LogarithmicGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(inp)
 
-        grad_inp_h = grad_output_h / (np.conjugate(inp) + np.finfo(inp.dtype).eps)
-        grad_inp_ah = grad_output_ah / (inp + np.finfo(inp.dtype).eps)
+        grad_inp_h = grad_output_h / (np.conjugate(inp) + epsilon)
+        grad_inp_ah = grad_output_ah / (inp + epsilon)
 
         return [(grad_inp_h, grad_inp_ah)]
 
@@ -34,8 +35,8 @@ class LogarithmicGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(inp)
 
-        denom_h = np.conjugate(inp) * np.log(2) + np.finfo(inp.dtype).eps
-        denom_ah = inp * np.log(2) + np.finfo(inp.dtype).eps
+        denom_h = np.conjugate(inp) * np.log(2) + epsilon
+        denom_ah = inp * np.log(2) + epsilon
 
         grad_inp_h = grad_output_h / denom_h
         grad_inp_ah = grad_output_ah / denom_ah
@@ -55,8 +56,8 @@ class LogarithmicGradients:
             grad_output_h = grad_output
             grad_output_ah = np.zeros_like(inp)
 
-        denom_h = np.conjugate(inp) * np.log(10) + np.finfo(inp.dtype).eps
-        denom_ah = inp * np.log(10) + np.finfo(inp.dtype).eps
+        denom_h = np.conjugate(inp) * np.log(10) + epsilon
+        denom_ah = inp * np.log(10) + epsilon
 
         grad_inp_h = grad_output_h / denom_h
         grad_inp_ah = grad_output_ah / denom_ah
@@ -103,7 +104,7 @@ class LogarithmicGradients:
             return [(zero_a, zero_a_ah), (zero_b, zero_b_ah)]
 
         exp_a, exp_b = np.exp(a), np.exp(b)
-        denom = exp_a + exp_b + np.finfo(a.dtype).eps
+        denom = exp_a + exp_b + epsilon
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
@@ -143,7 +144,7 @@ class LogarithmicGradients:
             return [(zero_a, zero_a_ah), (zero_b, zero_b_ah)]
 
         exp2_a, exp2_b = 2 ** a, 2 ** b
-        denom = exp2_a + exp2_b + np.finfo(a.dtype).eps
+        denom = exp2_a + exp2_b + epsilon
 
         if isinstance(grad_output, tuple):
             grad_output_h, grad_output_ah = grad_output
