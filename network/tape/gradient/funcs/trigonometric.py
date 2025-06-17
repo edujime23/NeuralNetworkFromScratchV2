@@ -1,6 +1,8 @@
 import numpy as np
+
 from ....types import Tensor
 from .util import epsilon
+
 
 class TrigonometricGradients:
     @staticmethod
@@ -28,12 +30,8 @@ class TrigonometricGradients:
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
 
-        # Promote to a float‐type so cos(z) isn’t integer‐division:
-        work_dtype = np.result_type(z.dtype, np.float32)
-        zf = z.astype(work_dtype, copy=False)
-
         # Add global epsilon to avoid division by zero
-        cos_z = np.cos(zf)
+        cos_z = np.cos(z)
         denom = cos_z * cos_z + epsilon
 
         dz = grad_output_h * (1.0 / denom)
@@ -46,10 +44,7 @@ class TrigonometricGradients:
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
 
-        work_dtype = np.result_type(z.dtype, np.float32)
-        zf = z.astype(work_dtype, copy=False)
-
-        inside = 1.0 - zf * zf
+        inside = 1.0 - z * z
         safe_inside = inside + epsilon
 
         dz = grad_output_h / np.sqrt(safe_inside)
@@ -62,10 +57,7 @@ class TrigonometricGradients:
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
 
-        work_dtype = np.result_type(z.dtype, np.float32)
-        zf = z.astype(work_dtype, copy=False)
-
-        inside = 1.0 - zf * zf
+        inside = 1.0 - (z**2)
         safe_inside = inside + epsilon
 
         dz = -grad_output_h / np.sqrt(safe_inside)
@@ -78,24 +70,19 @@ class TrigonometricGradients:
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
 
-        work_dtype = np.result_type(z.dtype, np.float32)
-        zf = z.astype(work_dtype, copy=False)
-
-        dz = grad_output_h / (1.0 + zf * zf)
+        dz = grad_output_h / (1.0 + z * z)
         return [dz]
 
     @staticmethod
-    def arctan2(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
+    def arctan2(
+        grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
+    ):
         y, x = inputs
         grad_output_h = (
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
 
-        work_dtype = np.result_type(x.dtype, y.dtype, np.complex64)
-        xf = x.astype(work_dtype, copy=False)
-        yf = y.astype(work_dtype, copy=False)
-
-        w = xf + 1j * yf
+        w = x + 1j * y
         safe_w = w + (epsilon + 0j)
 
         inv_w = 1.0 / safe_w
@@ -110,13 +97,11 @@ class TrigonometricGradients:
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
 
-        work_dtype = np.result_type(x.dtype, np.float32)
-        xf = x.astype(work_dtype, copy=False)
-        pi_x = np.pi * xf
+        pi_x = np.pi * x
 
-        numerator = np.cos(pi_x) * (np.pi * xf) - np.sin(pi_x)
-        denom = np.pi * xf * xf
-        grad_val = np.where(xf != 0, numerator / (denom + epsilon), 0.0)
+        numerator = np.cos(pi_x) * (np.pi * x) - np.sin(pi_x)
+        denom = np.pi * x * x
+        grad_val = np.where(x != 0, numerator / (denom + epsilon), 0.0)
 
         grad_x_h = grad_output_h * grad_val
         return [grad_x_h]
@@ -128,21 +113,19 @@ class TrigonometricGradients:
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
         grad_output_ah = (
-            grad_output[1] if isinstance(grad_output, tuple) else np.zeros_like(grad_output_h)
+            grad_output[1]
+            if isinstance(grad_output, tuple)
+            else np.zeros_like(grad_output_h)
         )
 
-        work_dtype = np.result_type(z1.dtype, z2.dtype, np.float64)
-        z1f = z1.astype(work_dtype, copy=False)
-        z2f = z2.astype(work_dtype, copy=False)
-
-        norm_sq = np.abs(z1f) * np.abs(z1f) + np.abs(z2f) * np.abs(z2f)
+        norm_sq = np.abs(z1) * np.abs(z1) + np.abs(z2) * np.abs(z2)
         safe_norm = norm_sq + epsilon
         r = np.sqrt(safe_norm)
 
-        grad_z1_h  = grad_output_h  * (np.conj(z1f) / (2.0 * r))
-        grad_z1_ah = grad_output_ah * (     z1f   / (2.0 * r))
-        grad_z2_h  = grad_output_h  * (np.conj(z2f) / (2.0 * r))
-        grad_z2_ah = grad_output_ah * (     z2f   / (2.0 * r))
+        grad_z1_h = grad_output_h * (np.conj(z1) / (2.0 * r))
+        grad_z1_ah = grad_output_ah * (z1 / (2.0 * r))
+        grad_z2_h = grad_output_h * (np.conj(z2) / (2.0 * r))
+        grad_z2_ah = grad_output_ah * (z2 / (2.0 * r))
 
         return [
             (grad_z1_h, grad_z1_ah),

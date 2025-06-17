@@ -66,11 +66,10 @@ class ArithmeticGradients:
         grad_output_h = (
             grad_output[0] if isinstance(grad_output, tuple) else grad_output
         )
-        safe_base = np.where(base.data == 0, 1e-12, base.data) 
-        log_base = Tensor(np.log(safe_base))
-        grad_exp  = grad_output_h * (base**exp) * log_base
+        safe_base = np.where(base == 0, 1e-12, base.data)
+        log_base = Tensor(complex_log(safe_base))
+        grad_exp = grad_output_h * (base**exp) * log_base
         grad_base = grad_output_h * exp * np.power(base, exp - 1)
-        # print(grad_output_h, base, exp, log_base)
         return [grad_base, grad_exp]
 
     @staticmethod

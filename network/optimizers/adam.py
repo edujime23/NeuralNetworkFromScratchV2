@@ -1,11 +1,14 @@
-import numpy as np
-from numba import njit
+from itertools import product
 
-from ..types import Tensor
+import numpy as np
+from numba import njit, prange
+
+from ..types.tensor import Tensor
+from ..types.variable import Variable
 from .base import Optimizer
 
 
-class AdamOptimizer(Optimizer):
+class Adam(Optimizer):
     """
     Adam optimizer with bias-corrected first and second moment estimates.
     This implementation floors denominators with epsilon and guards against NaNs/Infs.
@@ -13,50 +16,52 @@ class AdamOptimizer(Optimizer):
 
     def __init__(
         self,
-        learning_rate: float = 0.001,
+        lr: float = 0.001,
         beta_1: float = 0.9,
         beta_2: float = 0.999,
         epsilon: float | None = None,
     ) -> None:
-        super().__init__()
-        self.learning_rate = learning_rate
+        super().__init__(lr=lr)
         self.beta_1 = beta_1
         self.beta_2 = beta_2
         # If epsilon is None, use float32 machine epsilon
-        self.epsilon = (
-            epsilon if epsilon is not None else float(np.finfo(np.float32).eps)
-        )
+        self.epsilon = epsilon if epsilon is not None else np.finfo(np.float32).eps
 
-    def build(self, var_list: list[Tensor]) -> None:
-        for var in var_list:
-            self.add_slot(var, "m")
-            self.add_slot(var, "v")
+    def build(
+        self, var_list: list[Variable], dtypes: list[np.dtype] | None = None
+    ) -> None:
+        for var, dtype in product(var_list, dtypes):
+            self.add_slot(var, "m", dtype)
+            self.add_slot(var, "v", dtype)
 
-    def update_step(self, grad: Tensor, var: Tensor) -> None:
-        m = self.get_slot(var, "m")
-        v = self.get_slot(var, "v")
+    def update_step(self, grad: Tensor, slots: dict[str, Variable]) -> None:
+        m = slots["m"]
+        v = slots["v"]
 
         t = self.iterations + 1
-        bias_correction_1 = 1 - self.beta_1**t
-        bias_correction_2 = 1 - self.beta_2**t
+        bc1 = 1 - self.beta_1**t
+        bc2 = 1 - self.beta_2**t
+
+        # Call the generic-rank helper (no explicit signature)
         m_new, v_new, var_update = self._update_step_math(
-            m.numpy,
-            v.numpy,
-            grad.data,
+            m.numpy,  # raw NumPy array for m-slot
+            v.numpy,  # raw NumPy array for v-slot
+            grad.numpy,  # raw NumPy array of gradient
             self.beta_1,
             self.beta_2,
             self.epsilon,
-            self.learning_rate,
-            bias_correction_1,
-            bias_correction_2,
+            self.lr,
+            bc1,
+            bc2,
         )
 
-        m[...] = Tensor(m_new)
-        v[...] = Tensor(v_new)
-        var[...] -= Tensor(var_update)
+        # Write results back into the slot Variables
+        m.assign(m_new)
+        v.assign(v_new)
+        return var_update
 
     @staticmethod
-    @njit(fastmath=True, cache=True, nogil=True)
+    @njit(parallel=True, fastmath=True, cache=True, nogil=True)
     def _update_step_math(
         m: np.ndarray,
         v: np.ndarray,
@@ -64,35 +69,68 @@ class AdamOptimizer(Optimizer):
         beta_1: float,
         beta_2: float,
         epsilon: float,
-        learning_rate: float,
+        lr: float,
         bias_correction_1: float,
         bias_correction_2: float,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ):
         """
-        Core Adam update step. Floors denominator to epsilon to avoid division by zero.
+        Parallelized, Numba-compiled Adam step.
+        - m, v, grad are ND arrays of identical shape.
+        - Returns (m_new, v_new, var_delta) arrays, each same shape as inputs.
+
+        Uses prange to parallelize across all elements.
         """
+        # Number of total elements
+        n = m.size
+
+        # Allocate output arrays
+        m_new = np.empty_like(m)
+        v_new = np.empty_like(v)
+        var_delta = np.empty_like(grad, dtype=m.dtype)
+
+        # View as 1D for parallel loop
+        m_flat = m.reshape(n)
+        v_flat = v.reshape(n)
+        g_flat = grad.reshape(n)
+        m_new_flat = m_new.reshape(n)
+        v_new_flat = v_new.reshape(n)
+        d_flat = var_delta.reshape(n)
+
+        # Precompute constants
         one_minus_beta1 = 1.0 - beta_1
         one_minus_beta2 = 1.0 - beta_2
 
-        m_new = beta_1 * m + one_minus_beta1 * grad
-        grad_sq = np.real(grad * np.conj(grad))
-        v_new = beta_2 * v + one_minus_beta2 * grad_sq
+        for i in prange(n):
+            # 1) Update biased first moment
+            m_i = beta_1 * m_flat[i] + one_minus_beta1 * g_flat[i]
 
-        m_hat = m_new / bias_correction_1
-        v_hat = v_new / bias_correction_2
+            gi = g_flat[i]
+            grad_sq = np.real(gi * np.conj(gi))
+            v_i = beta_2 * v_flat[i] + one_minus_beta2 * grad_sq
 
-        # Compute denominator and floor it using magnitude comparison
-        denom = np.sqrt(v_hat) + epsilon
-        mask = ~np.isfinite(denom) | (np.abs(denom) < epsilon)
-        denom = np.where(mask, epsilon, denom)
+            # 3) Bias-corrected estimates
+            m_hat = m_i / bias_correction_1
+            v_hat = v_i / bias_correction_2
 
-        var_update = learning_rate * m_hat / denom
-        # Guard against NaN/Inf in var_update
-        var_update = learning_rate * m_hat / denom
-        mask = ~np.isfinite(var_update)
-        var_update = np.where(mask, 0.0, var_update)
+            # 4) Denominator with epsilon floor
+            denom = np.sqrt(v_hat) + epsilon
+            # If denom is NaN/Inf or below epsilon, floor to epsilon
+            if not np.isfinite(denom) or np.abs(denom) < epsilon:
+                denom = epsilon
 
-        return m_new, v_new, var_update
+            # 5) Compute parameter delta
+            delta = lr * m_hat / denom
+
+            # 6) Guard against NaN/Inf in delta
+            if not np.isfinite(delta):
+                delta = 0.0
+
+            # Write back into flat outputs
+            m_new_flat[i] = m_i
+            v_new_flat[i] = v_i
+            d_flat[i] = delta
+
+        return m_new, v_new, var_delta
 
     @classmethod
     def get_slot_names(cls) -> list[str]:

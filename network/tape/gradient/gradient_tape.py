@@ -8,9 +8,9 @@ from typing import Any
 
 import numpy as np
 
+from ...queues import tapes
 from ...types import Tensor, Variable
 from .funcs import GRADIENTS, numerical_derivative
-from ...queues import tapes
 
 
 @dataclass
@@ -280,24 +280,27 @@ class GradientTape:
 
         # For each active tape, if any input is watched, record the new node
         if tapes:
-            if any(id(tensor) in (tape := tapes[-1]).watched for tensor in normalized_inputs):
+            if any(
+                id(tensor) in (tape := tapes[-1]).watched
+                for tensor in normalized_inputs
+            ):
                 tape.watch(result_tensor, *normalized_inputs)
                 tape._create_and_link_op_node(
                     func, method, normalized_inputs, normalized_kwargs, result_tensor
                 )
 
-    def _unbroadcast_gradient(self, grad: Tensor, original_shape: tuple[int, ...]) -> Tensor:
+    def _unbroadcast_gradient(
+        self, grad: Tensor, original_shape: tuple[int, ...]
+    ) -> Tensor:
         """
-            Reverse NumPy-style broadcasting so that `grad` ends up with exactly `original_shape`.
+        Reverse NumPy-style broadcasting so that `grad` ends up with exactly `original_shape`.
         """
         if grad.shape == original_shape:
             return grad
 
         if grad.ndim == 0 and original_shape:
             fill_value = grad.item()
-            return Tensor(
-                np.full(original_shape, fill_value, dtype=grad.dtype)
-            )
+            return Tensor(np.full(original_shape, fill_value, dtype=grad.dtype))
 
         while grad.ndim > len(original_shape):
             grad = grad.sum(axis=0)
@@ -497,7 +500,9 @@ class GradientTape:
             if node.last_visited == stamp:
                 continue
             node.last_visited = stamp
-            stack.extend(parent for parent in node.parents if parent.last_visited != stamp)
+            stack.extend(
+                parent for parent in node.parents if parent.last_visited != stamp
+            )
         # 2) Traverse nodes in reverse-creation order, propagating gradients
         for node in reversed(self._nodes_in_order):
             if node.last_visited != stamp:
@@ -533,7 +538,7 @@ class GradientTape:
         target: Tensor | Variable,
         sources: Tensor | Variable | Iterable[Tensor | Variable],
         output_gradients: Tensor | Variable | None = None,
-        unconnected_gradients: str = "none",
+        unconnected_gradients: str = "zero",
     ) -> tuple[Tensor, Tensor] | list[tuple[Tensor, Tensor] | None] | None:
         """
         Compute gradients of 'target' w.r.t. 'sources', returning (holomorphic, antiholomorphic) pairs.
@@ -631,7 +636,9 @@ class GradientTape:
         final_list: list[tuple[Tensor, Tensor] | None] = []
         for s in raw_sources:
             grad_pair = self._get_final_gradient_for_source(s, unconnected_gradients)
-            final_list.append(grad_pair)
+            final_list.append(
+                (np.real_if_close(grad_pair[0]), np.real_if_close(grad_pair[1]))
+            )
 
         return final_list[0] if is_single else final_list
 

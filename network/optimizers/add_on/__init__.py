@@ -1,5 +1,19 @@
-from .adam import Adam
-from .add_on.basic import (
+from .base import (
+    AddonConfig,
+    AddonConflictError,
+    AddonContext,
+    AddonDependencyError,
+    AddonError,
+    AddonHookPoint,
+    AddonPriority,
+    AddonState,
+    ConditionalAddon,
+    OptimizerAddon,
+    OptimizerAddonMixin,
+    SimpleAddon,
+    addon_hook,
+)
+from .basic import (
     AdaptiveGradientClippingAddon,
     AdaptiveNoiseAddon,
     CosineDecaySchedulerAddon,
@@ -13,11 +27,21 @@ from .add_on.basic import (
     LoggingAddon,
     NesterovMomentumAddon,
 )
-from .base import Optimizer
 
 __all__ = [
-    "Optimizer",
-    "Adam",
+    "AddonConfig",
+    "AddonContext",
+    "AddonConflictError",
+    "AddonDependencyError",
+    "AddonError",
+    "AddonHookPoint",
+    "AddonPriority",
+    "AddonState",
+    "ConditionalAddon",
+    "OptimizerAddon",
+    "OptimizerAddonMixin",
+    "SimpleAddon",
+    "addon_hook",
     "AdaptiveGradientClippingAddon",
     "AdaptiveNoiseAddon",
     "CosineDecaySchedulerAddon",

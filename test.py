@@ -1,23 +1,35 @@
-from network.tape import GradientTape
-from network.types import Variable, Tensor
 import numpy as np
 
-x = Variable([1.0, 2.0, 3.0], dtype=np.float64)
-y = Variable([1+1j, 2+2j, 3+3j], dtype=np.complex128)
-z = Tensor([1+1j, 2+2j, 3+3j], dtype=np.complex128)
+from network.layers import Dense
+from network.models import Sequential
 
-def func(u):
-    val = u ** 2
-    return val
+# Seed for reproducibility
+np.random.seed(0)
 
-with GradientTape() as tape:
-    tape.watch(x, y, z)
-    r = func(x) + func(y) + func(z)
-    # print("Recorded ops:")
-    # for node in tape._nodes_in_order:
-    #     print("   func is:", node.func, "   name:", node.func.__name__, "   result:", node.result, "   inputs:", node.inputs)
+# Toy dataset: y = 3x + 2 + noise
+X = np.random.randn(100, 1).astype(np.float32)
+Y = 3 * X + 2 + 0.1 * np.random.randn(100, 1).astype(np.float32)
 
-dx, dy, dz = tape.gradient(r, [x, y, z])
-print("∂r/∂x =", np.round(dx, 3))
-print("∂r/∂y =", np.round(dy, 3))
-print("∂r/∂z =", np.round(dz, 3))
+
+# Define loss function
+def mse(y_true, y_pred):
+    return ((y_true - y_pred) ** 2).mean()
+
+
+# Build the model
+model = Sequential(
+    [Dense(units=1, activation=None, name="linear")], name="linear_model"
+)
+
+# Compile the model
+model.compile(optimizer="adam", loss=mse, metrics=["mse"])
+
+# Train the model
+model.fit(x=X, y=Y, epochs=50, batch_size=16)
+
+# Summary
+model.summary()
+
+# Predict
+predictions = model(X)
+print("\nSample predictions:\n", predictions[:5])

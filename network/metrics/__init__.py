@@ -1,7 +1,3 @@
-import numpy as np
+from .base import MeanAbsoluteError, MeanSquaredError
 
-class Metric:
-    def from_string(initializer_name: str):
-        pass
-    def update_state(self, y_true: np.ndarray, y_pred: np.ndarray) -> None:
-        pass
+__all__ = ["MeanAbsoluteError", "MeanSquaredError"]

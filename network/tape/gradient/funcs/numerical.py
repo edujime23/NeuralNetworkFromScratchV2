@@ -144,8 +144,8 @@ class WirtingerDifferentiator:
             raise RuntimeError(f"Function evaluation test failed: {e}") from e
 
         # Store them (we never mutate these lists in place)
-        self.original_inputs = sanitized[:]  
-        self.current_inputs = sanitized[:]   
+        self.original_inputs = sanitized[:]
+        self.current_inputs = sanitized[:]
 
     def _get_finite_difference_stencil(self, order: int) -> tuple[Tensor, Tensor]:
         """Return (coefficients, points) as Tensors, based on the requested order."""
@@ -173,7 +173,9 @@ class WirtingerDifferentiator:
         data = stencils[order]
         coeffs_list = data["coefficients"]
         if "divisor" in data:
-            coeffs_array = np.array(coeffs_list, dtype=self.work_dtype) / data["divisor"]
+            coeffs_array = (
+                np.array(coeffs_list, dtype=self.work_dtype) / data["divisor"]
+            )
         else:
             coeffs_array = np.array(coeffs_list, dtype=self.work_dtype)
         points_array = np.array(data["points"], dtype=self.real_dtype)
@@ -212,7 +214,9 @@ class WirtingerDifferentiator:
             base = (self.machine_eps ** (1.0 / (self.config.max_order + 2))) * scale
 
         if not self.config.use_optimal_step_search:
-            return float(np.clip(base, self.config.min_step_size, self.config.max_step_size))
+            return float(
+                np.clip(base, self.config.min_step_size, self.config.max_step_size)
+            )
 
         def error_estimate(log_h: float) -> float:
             h = float(np.exp(log_h))
@@ -223,7 +227,6 @@ class WirtingerDifferentiator:
                 if direction == "complex_step":
                     # Build a mask of zeros, except +i*h at index element_idx
                     n = x_flat.size
-                    mask_real_list = [0.0] * n
                     mask_imag_list = [0.0] * n
                     mask_imag_list[element_idx] = h
                     mask_imag = Tensor(np.array(mask_imag_list, dtype=self.real_dtype))
@@ -232,18 +235,25 @@ class WirtingerDifferentiator:
                     base_real = x_flat.real()
                     base_imag = x_flat.imag()
                     base_complex = Tensor(base_real, dtype=self.work_dtype) + (
-                        Tensor(base_imag, dtype=self.work_dtype) * Tensor(1j, dtype=self.work_dtype)
+                        Tensor(base_imag, dtype=self.work_dtype)
+                        * Tensor(1j, dtype=self.work_dtype)
                     )
 
-                    perturbed = base_complex + (mask_imag * Tensor(1j, dtype=self.work_dtype))
+                    perturbed = base_complex + (
+                        mask_imag * Tensor(1j, dtype=self.work_dtype)
+                    )
                     x_pert = perturbed.reshape(x.shape)
                     f1 = self._call_function_safe(func, idx, x_pert, kwargs)
                     deriv1 = float(f1.flatten()[0].imag().item()) / h
 
                     # half‐step
                     mask_imag_half_list = [val / 2.0 for val in mask_imag_list]
-                    mask_imag_half = Tensor(np.array(mask_imag_half_list, dtype=self.real_dtype))
-                    perturbed2 = base_complex + (mask_imag_half * Tensor(1j, dtype=self.work_dtype))
+                    mask_imag_half = Tensor(
+                        np.array(mask_imag_half_list, dtype=self.real_dtype)
+                    )
+                    perturbed2 = base_complex + (
+                        mask_imag_half * Tensor(1j, dtype=self.work_dtype)
+                    )
                     x_pert2 = perturbed2.reshape(x.shape)
                     f2 = self._call_function_safe(func, idx, x_pert2, kwargs)
                     deriv2 = float(f2.flatten()[0].imag().item()) / (h / 2.0)
@@ -251,7 +261,9 @@ class WirtingerDifferentiator:
                     err = abs(deriv1 - deriv2)
                 else:
                     # high-order finite differences: “real” or “imag” direction
-                    coeffs, points = self._get_finite_difference_stencil(self.config.max_order)
+                    coeffs, points = self._get_finite_difference_stencil(
+                        self.config.max_order
+                    )
                     n_out = self.f0.size
 
                     # Evaluate at full‐step
@@ -263,17 +275,27 @@ class WirtingerDifferentiator:
                             mask_list = [0.0] * x_flat.size
                             mask_list[element_idx] = delta
                             mask = Tensor(np.array(mask_list, dtype=self.real_dtype))
-                            base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            base = (
+                                x_flat
+                                if x_flat.dtype.kind == "c"
+                                else x_flat.astype(self.work_dtype)
+                            )
                             pert = base + mask
                         else:  # “imag” direction
                             mask_list = [0.0] * x_flat.size
                             mask_list[element_idx] = delta
                             mask_im = Tensor(np.array(mask_list, dtype=self.real_dtype))
-                            base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            base = (
+                                x_flat
+                                if x_flat.dtype.kind == "c"
+                                else x_flat.astype(self.work_dtype)
+                            )
                             pert = base + (mask_im * Tensor(1j, dtype=self.work_dtype))
 
                         x_p = pert.reshape(x.shape)
-                        fvals_full.append(self._call_function_safe(func, idx, x_p, kwargs))
+                        fvals_full.append(
+                            self._call_function_safe(func, idx, x_p, kwargs)
+                        )
 
                     # Evaluate at half‐step
                     fvals_half = []
@@ -283,41 +305,53 @@ class WirtingerDifferentiator:
                             mask_list2 = [0.0] * x_flat.size
                             mask_list2[element_idx] = delta
                             mask2 = Tensor(np.array(mask_list2, dtype=self.real_dtype))
-                            base2 = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                            base2 = (
+                                x_flat
+                                if x_flat.dtype.kind == "c"
+                                else x_flat.astype(self.work_dtype)
+                            )
                             pert2 = base2 + mask2
                         else:
                             mask_list2 = [0.0] * x_flat.size
                             mask_list2[element_idx] = delta
-                            mask_im2 = Tensor(np.array(mask_list2, dtype=self.real_dtype))
-                            base2 = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
-                            pert2 = base2 + (mask_im2 * Tensor(1j, dtype=self.work_dtype))
+                            mask_im2 = Tensor(
+                                np.array(mask_list2, dtype=self.real_dtype)
+                            )
+                            base2 = (
+                                x_flat
+                                if x_flat.dtype.kind == "c"
+                                else x_flat.astype(self.work_dtype)
+                            )
+                            pert2 = base2 + (
+                                mask_im2 * Tensor(1j, dtype=self.work_dtype)
+                            )
 
                         x_p2 = pert2.reshape(x.shape)
-                        fvals_half.append(self._call_function_safe(func, idx, x_p2, kwargs))
-
-                    # Flatten and compute derivative estimates
-                    def extract_scalar_list(flist: list[Tensor]):
-                        # since we only care about the first output entry for step‐size error
-                        return [float(f.flatten()[0].item()) for f in flist]
-
-                    vals_full = extract_scalar_list(fvals_full)
-                    vals_half = extract_scalar_list(fvals_half)
+                        fvals_half.append(
+                            self._call_function_safe(func, idx, x_p2, kwargs)
+                        )
 
                     # d_full and d_half as lists of n_out floats
                     d_full = []
                     d_half = []
                     coeffs_list = coeffs.data.tolist()
                     for j in range(n_out):
-                        num_full = sum(coeffs_list[k] * float(fvals_full[k].flatten()[j].item())
-                                       for k in range(len(coeffs_list)))
+                        num_full = sum(
+                            coeffs_list[k] * float(fvals_full[k].flatten()[j].item())
+                            for k in range(len(coeffs_list))
+                        )
                         d_full.append(num_full / h)
 
-                        num_half = sum(coeffs_list[k] * float(fvals_half[k].flatten()[j].item())
-                                       for k in range(len(coeffs_list)))
+                        num_half = sum(
+                            coeffs_list[k] * float(fvals_half[k].flatten()[j].item())
+                            for k in range(len(coeffs_list))
+                        )
                         d_half.append(num_half / (h / 2.0))
 
                     # Richardson error estimate
-                    err = max(abs(dh - df) for dh, df in zip(d_half, d_full)) / (2 ** self.config.max_order - 1)
+                    err = max(abs(dh - df) for dh, df in zip(d_half, d_full)) / (
+                        2**self.config.max_order - 1
+                    )
 
                 return float(err + self.machine_eps)
             except Exception:
@@ -326,7 +360,10 @@ class WirtingerDifferentiator:
         try:
             res = minimize_scalar(
                 error_estimate,
-                bounds=(np.log(self.config.min_step_size), np.log(self.config.max_step_size)),
+                bounds=(
+                    np.log(self.config.min_step_size),
+                    np.log(self.config.max_step_size),
+                ),
                 method="bounded",
                 options={"xatol": self.config.step_optimization_tolerance},
             )
@@ -338,7 +375,9 @@ class WirtingerDifferentiator:
             print(
                 f"Optimal step size for element {element_idx}, direction {direction}: {optimal:.2e}"
             )
-        return float(np.clip(optimal, self.config.min_step_size, self.config.max_step_size))
+        return float(
+            np.clip(optimal, self.config.min_step_size, self.config.max_step_size)
+        )
 
     def _call_function_safe(
         self,
@@ -383,7 +422,9 @@ class WirtingerDifferentiator:
             # Replace any non-finite entries with zero (using a temporary numpy array)
             data_arr = result.data
             if not np.isfinite(data_arr).all():
-                warnings.warn("Function output contains non-finite values", stacklevel=2)
+                warnings.warn(
+                    "Function output contains non-finite values", stacklevel=2
+                )
                 copy_arr = data_arr.copy()
                 copy_arr[~np.isfinite(copy_arr)] = 0.0
                 result = Tensor(copy_arr, dtype=copy_arr.dtype)
@@ -414,9 +455,15 @@ class WirtingerDifferentiator:
             orig = x_flat[i].item()
             # Pick step size
             if self.config.adaptive_step:
-                h = self._find_optimal_step_size(func, x, input_idx, i, "complex_step", kwargs)
+                h = self._find_optimal_step_size(
+                    func, x, input_idx, i, "complex_step", kwargs
+                )
             else:
-                scale = abs(orig) if not isinstance(orig, complex) else max(abs(orig.real), abs(orig.imag))
+                scale = (
+                    max(abs(orig.real), abs(orig.imag))
+                    if isinstance(orig, complex)
+                    else abs(orig)
+                )
                 scale = max(scale, 1.0)
                 h = np.sqrt(self.machine_eps) * scale
 
@@ -431,7 +478,8 @@ class WirtingerDifferentiator:
             base_real = x_flat.real()
             base_imag = x_flat.imag()
             base_complex = Tensor(base_real, dtype=self.work_dtype) + (
-                Tensor(base_imag, dtype=self.work_dtype) * Tensor(1j, dtype=self.work_dtype)
+                Tensor(base_imag, dtype=self.work_dtype)
+                * Tensor(1j, dtype=self.work_dtype)
             )
 
             pert_flat = base_complex + (mask_imag * Tensor(1j, dtype=self.work_dtype))
@@ -449,14 +497,16 @@ class WirtingerDifferentiator:
                 # However, the provided Tensor class forbids in-place assignment.
                 # So we’ll create a small 2D numpy array to hold one column, then reinsert it:
                 col_arr = grad_z.data[:, :]  # read the entire (n_out, n_in) as numpy
-                col_arr = col_arr.copy()     # mutable copy
+                col_arr = col_arr.copy()  # mutable copy
                 col_arr[j, i] = complex(diff.item() / (1j * h))
                 grad_z = Tensor(col_arr.reshape((n_out, n_in)), dtype=col_arr.dtype)
 
                 # ∂f/∂z̄ = 0 for analytic f
                 col_arr2 = grad_conj_z.data.copy()
                 col_arr2[j, i] = 0.0
-                grad_conj_z = Tensor(col_arr2.reshape((n_out, n_in)), dtype=col_arr2.dtype)
+                grad_conj_z = Tensor(
+                    col_arr2.reshape((n_out, n_in)), dtype=col_arr2.dtype
+                )
 
         out_shape = self.f0.shape + x.shape
         grad_z = grad_z.reshape(out_shape)
@@ -486,8 +536,12 @@ class WirtingerDifferentiator:
 
             # Step sizes in real/imag
             if self.config.adaptive_step:
-                eps_r = self._find_optimal_step_size(func, x, input_idx, i, "real", kwargs)
-                eps_i = self._find_optimal_step_size(func, x, input_idx, i, "imag", kwargs)
+                eps_r = self._find_optimal_step_size(
+                    func, x, input_idx, i, "real", kwargs
+                )
+                eps_i = self._find_optimal_step_size(
+                    func, x, input_idx, i, "imag", kwargs
+                )
             else:
                 if isinstance(orig, complex):
                     scale_r = max(abs(orig.real), 1.0)
@@ -496,12 +550,12 @@ class WirtingerDifferentiator:
                     scale_r = max(abs(orig), 1.0)
                     scale_i = 1.0
                 factor = 1.0 / (self.config.max_order + 1)
-                eps_r = (self.machine_eps ** factor) * scale_r
-                eps_i = (self.machine_eps ** factor) * scale_i
+                eps_r = (self.machine_eps**factor) * scale_r
+                eps_i = (self.machine_eps**factor) * scale_i
 
             self.step_size_history.append((eps_r, eps_i))
 
-            def make_perturbed(delta: float, dir_flag: str) -> Tensor:
+            def make_perturbed(delta: float, dir_flag: str, i: int) -> Tensor:
                 """
                 Build a new Tensor of shape x.shape, where only x_flat[i] is perturbed:
                 - If dir_flag=="real", add +delta to real part
@@ -512,13 +566,21 @@ class WirtingerDifferentiator:
                     mask_list = [0.0] * n
                     mask_list[i] = delta
                     mask = Tensor(np.array(mask_list, dtype=self.real_dtype))
-                    base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                    base = (
+                        x_flat
+                        if x_flat.dtype.kind == "c"
+                        else x_flat.astype(self.work_dtype)
+                    )
                     pert_flat = base + mask
                 else:  # "imag"
                     mask_list = [0.0] * n
                     mask_list[i] = delta
                     mask_im = Tensor(np.array(mask_list, dtype=self.real_dtype))
-                    base = x_flat if x_flat.dtype.kind == "c" else x_flat.astype(self.work_dtype)
+                    base = (
+                        x_flat
+                        if x_flat.dtype.kind == "c"
+                        else x_flat.astype(self.work_dtype)
+                    )
                     pert_flat = base + (mask_im * Tensor(1j, dtype=self.work_dtype))
 
                 return pert_flat.reshape(x.shape)
@@ -527,13 +589,16 @@ class WirtingerDifferentiator:
             if self.config.richardson_extrapolation:
                 f_full = [
                     self._call_function_safe(
-                        func, input_idx, make_perturbed(pt * eps_r, "real"), kwargs
+                        func, input_idx, make_perturbed(pt * eps_r, "real", i), kwargs
                     )
                     for pt in points_list
                 ]
                 f_half = [
                     self._call_function_safe(
-                        func, input_idx, make_perturbed(pt * (eps_r / 2.0), "real"), kwargs
+                        func,
+                        input_idx,
+                        make_perturbed(pt * (eps_r / 2.0), "real", i),
+                        kwargs,
                     )
                     for pt in points_list
                 ]
@@ -554,13 +619,14 @@ class WirtingerDifferentiator:
                     d_half.append(num_h / (eps_r / 2.0))
 
                 d_real = [
-                    ((2 ** self.config.max_order) * dh - df) / (2 ** self.config.max_order - 1)
+                    ((2**self.config.max_order) * dh - df)
+                    / (2**self.config.max_order - 1)
                     for df, dh in zip(d_full, d_half)
                 ]
             else:
                 f_vals = [
                     self._call_function_safe(
-                        func, input_idx, make_perturbed(pt * eps_r, "real"), kwargs
+                        func, input_idx, make_perturbed(pt * eps_r, "real", i), kwargs
                     )
                     for pt in points_list
                 ]
@@ -576,13 +642,16 @@ class WirtingerDifferentiator:
             if self.config.richardson_extrapolation:
                 f_full_i = [
                     self._call_function_safe(
-                        func, input_idx, make_perturbed(pt * eps_i, "imag"), kwargs
+                        func, input_idx, make_perturbed(pt * eps_i, "imag", i), kwargs
                     )
                     for pt in points_list
                 ]
                 f_half_i = [
                     self._call_function_safe(
-                        func, input_idx, make_perturbed(pt * (eps_i / 2.0), "imag"), kwargs
+                        func,
+                        input_idx,
+                        make_perturbed(pt * (eps_i / 2.0), "imag", i),
+                        kwargs,
                     )
                     for pt in points_list
                 ]
@@ -603,13 +672,14 @@ class WirtingerDifferentiator:
                     d_half_i.append(num_hi / (eps_i / 2.0))
 
                 d_imag = [
-                    ((2 ** self.config.max_order) * dhi - dfi) / (2 ** self.config.max_order - 1)
+                    ((2**self.config.max_order) * dhi - dfi)
+                    / (2**self.config.max_order - 1)
                     for dfi, dhi in zip(d_full_i, d_half_i)
                 ]
             else:
                 f_vals_i = [
                     self._call_function_safe(
-                        func, input_idx, make_perturbed(pt * eps_i, "imag"), kwargs
+                        func, input_idx, make_perturbed(pt * eps_i, "imag", i), kwargs
                     )
                     for pt in points_list
                 ]
@@ -631,7 +701,10 @@ class WirtingerDifferentiator:
                 gz_arr[j, i] = 0.5 * (re_val - 1j * im_val)
                 gc_arr[j, i] = 0.5 * (re_val + 1j * im_val)
 
-                if abs(re_val) > self.config.condition_threshold or abs(im_val) > self.config.condition_threshold:
+                if (
+                    abs(re_val) > self.config.condition_threshold
+                    or abs(im_val) > self.config.condition_threshold
+                ):
                     warnings.warn(
                         f"Large derivative at output {j}, input {i}: "
                         f"|∂f/∂x|={abs(re_val):.2e}, |∂f/∂y|={abs(im_val):.2e}",
@@ -681,7 +754,7 @@ class WirtingerDifferentiator:
         grads: list[tuple[Tensor, Tensor]] = []
 
         for idx, x in enumerate(self.current_inputs):
-            is_complex = (x.dtype.kind == "c")
+            is_complex = x.dtype.kind == "c"
             if self.config.verbose:
                 print(
                     f"\nProcessing input {idx}: shape={x.shape}, dtype={x.dtype}, complex={is_complex}"
@@ -690,7 +763,9 @@ class WirtingerDifferentiator:
             if not is_complex:
                 gz, gc = self._compute_complex_step_derivative(func, x, idx, kwargs)
             else:
-                gz, gc = self._compute_finite_difference_derivative(func, x, idx, kwargs)
+                gz, gc = self._compute_finite_difference_derivative(
+                    func, x, idx, kwargs
+                )
 
             # Convert output dtypes if requested
             if self.config.return_real_if_input_real and not is_complex:

@@ -1,9 +1,11 @@
 import contextlib
+import os
 import sys
 import warnings
 from typing import Self
 
 import numpy as np
+
 from ..queues import tapes
 
 # Keep a reference to the original warnings.showwarning
@@ -12,7 +14,7 @@ _ORIGINAL_SHOWWARNING = warnings.showwarning
 
 class Tensor:
     """
-    A “tf.Tensor-like” wrapper around a read-only NumPy ndarray. Externally, it provides:
+    A "tf.Tensor-like" wrapper around a read-only NumPy ndarray. Externally, it provides:
       - attributes:   .shape, .dtype, .ndim, .size, .name, .device, .T, .graph (None)
       - conversion:   .numpy(), .eval()
       - indexing:    t[i], t[:, 2], etc.
@@ -21,10 +23,10 @@ class Tensor:
       - Arithmetic & ufuncs:  x + y, x * 3, x**2, np.sqrt(x), np.mean(x), etc.
       - Reductions & reshaping:  t.sum(axis=...), t.mean(...), t.reshape(...), etc.
       - Casting:  t.astype(np.float32)
-      - Additional “tf-like” methods:  clip_by_value, clip_by_norm, get_shape, rank, eval
+      - Additional "tf-like" methods:  clip_by_value, clip_by_norm, get_shape, rank, eval
       - If you call any NumPy ufunc or function on a Tensor, it returns a new Tensor
         and (in a real TF scenario) would call GradientTape.record(...) so that
-        autodiff “sees” every primitive. Here, we simulate the recording hooks.
+        autodiff "sees" every primitive. Here, we simulate the recording hooks.
     """
 
     __slots__ = ("__data", "_name", "_dtype", "_shape")
@@ -127,12 +129,69 @@ class Tensor:
     def dot(self, b: Self, out=None) -> Self:
         return Tensor(self.data.dot(b=b, out=out))
 
+    @staticmethod
+    def _find_user_frame():
+        """Find the first frame that's in user code (not in numpy, site-packages, etc.)"""
+        frame = sys._getframe()
+
+        # Get the directory containing tensor.py to exclude all internal types
+        types_dir = os.path.dirname(os.path.abspath(__file__))
+
+        skip_patterns = (
+            "numpy",
+            "site-packages",
+            "warnings.py",
+            "<frozen ",
+            "__pycache__",
+        )
+
+        while frame:
+            filename = frame.f_code.co_filename
+            abs_filename = os.path.abspath(filename)
+
+            # Skip all files in the types directory (tensor.py, variable.py, etc.)
+            if os.path.dirname(abs_filename) == types_dir:
+                frame = frame.f_back
+                continue
+
+            if any(pattern in filename for pattern in skip_patterns):
+                frame = frame.f_back
+                continue
+
+            # Found user code frame
+            return filename, frame.f_lineno
+
+        # Fallback - return None to use original warning location
+        return None, None
+
+    @staticmethod
+    def _custom_showwarning(message, category, filename, lineno, file=None, line=None):
+        """Custom warning handler that shows warnings at the user code location"""
+        user_filename, user_lineno = Tensor._find_user_frame()
+
+        if user_filename and user_lineno:
+            _ORIGINAL_SHOWWARNING(message, category, user_filename, user_lineno, file, line)
+        else:
+            # Fallback to original behavior
+            _ORIGINAL_SHOWWARNING(message, category, filename, lineno, file, line)
+
+    @contextlib.contextmanager
+    def _warning_context(self):
+        """Context manager to temporarily replace warning handler"""
+        original = warnings.showwarning
+        warnings.showwarning = self._custom_showwarning
+        try:
+            yield
+        finally:
+            warnings.showwarning = original
+
     def __array__(self, dtype=None) -> np.ndarray:
         """
         Support np.asarray(tensor) or np.array(tensor). If dtype is given,
         cast accordingly.
         """
-        return self.data if dtype is None else self.data.astype(dtype)
+        with self._warning_context():
+            return self.data if dtype is None else self.data.astype(dtype)
 
     def item(self) -> int | float | complex:
         """
@@ -171,25 +230,11 @@ class Tensor:
     def __repr__(self) -> str:
         return f"Tensor{repr(self.data).removeprefix("array")}"
 
-    @staticmethod
-    def _custom_showwarning(message, category, filename, lineno, file=None, line=None):
-        frame = sys._getframe()
-        skip_keywords = (
-            "numpy",
-            "site-packages",
-            "warnings.py",
-            "<frozen ",
-            ".venv",
-            __file__,
-        )
-        while frame:
-            fname = frame.f_code.co_filename
-            if all(kw not in fname for kw in skip_keywords):
-                break
-            frame = frame.f_back
-        target_file = frame.f_code.co_filename if frame else filename
-        target_lineno = frame.f_lineno if frame else lineno
-        _ORIGINAL_SHOWWARNING(message, category, target_file, target_lineno, file, line)
+    def __format__(self, format_spec: str) -> str:
+        if self.ndim == 0:
+            return format(self.data.item(), format_spec)
+
+        return self.__repr__()
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         # Build a parallel tuple of just the Tensor‐objects:
@@ -208,11 +253,8 @@ class Tensor:
             for k, v in kwargs.items()
         }
 
-        warnings.showwarning = self._custom_showwarning
-        try:
+        with self._warning_context():
             result_array = getattr(ufunc, method)(*np_inputs, **np_kwargs)
-        finally:
-            warnings.showwarning = _ORIGINAL_SHOWWARNING
 
         # Wrap the NumPy result into a fresh Tensor:
         if isinstance(result_array, np.ndarray):
@@ -246,11 +288,8 @@ class Tensor:
             for k, v in kwargs.items()
         }
 
-        warnings.showwarning = self._custom_showwarning
-        try:
+        with self._warning_context():
             result_array = func(*np_inputs, **np_kwargs)
-        finally:
-            warnings.showwarning = _ORIGINAL_SHOWWARNING
 
         if isinstance(result_array, np.ndarray):
             out = Tensor(result_array, dtype=result_array.dtype, name=None)
@@ -291,7 +330,7 @@ class Tensor:
 
     def __matmul__(self, other) -> Self:
         return np.matmul(self, other)
-    
+
     def __radd__(self, other) -> Self:
         return np.add(other, self)
 
@@ -359,7 +398,8 @@ class Tensor:
 
     # Shape manipulation
     def reshape(self, *shape: int) -> Self:
-        arr = self.data.reshape(*shape)
+        with self._warning_context():
+            arr = self.data.reshape(*shape)
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
@@ -369,7 +409,8 @@ class Tensor:
         return out
 
     def transpose(self, *axes: int) -> Self:
-        arr = self.data.transpose(*axes)
+        with self._warning_context():
+            arr = self.data.transpose(*axes)
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
@@ -386,10 +427,9 @@ class Tensor:
         """
         Return a copy of the tensor collapsed into one dimension.
         """
-        # Use NumPy’s flatten to get a 1-D array
-        arr = self.data.flatten()
+        with self._warning_context():
+            arr = self.data.flatten()
         out = Tensor(arr, dtype=arr.dtype, name=self.name)
-        # Record for autodiff if a GradientTape is active
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1].record(
@@ -397,15 +437,23 @@ class Tensor:
                 )
         return out
 
+    def squeeze(self):
+        with self._warning_context():
+            arr = self.data.squeeze()
+        out = Tensor(arr, dtype=arr.dtype, name=self.name, shape=arr.shape)
+        with contextlib.suppress(ImportError):
+            if tapes:
+                tapes[-1].record(
+                    np.ndarray.squeeze, "__call__", (self,), {}, out
+                    )
+        return out
+
     # Reductions
     def sum(
         self, axis: int | tuple[int, ...] | None = None, keepdims: bool = False
     ) -> Self:
-        warnings.showwarning = self._custom_showwarning
-        try:
+        with self._warning_context():
             arr = self.data.sum(axis=axis, keepdims=keepdims)
-        finally:
-            warnings.showwarning = _ORIGINAL_SHOWWARNING
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
@@ -421,11 +469,8 @@ class Tensor:
     def mean(
         self, axis: int | tuple[int, ...] | None = None, keepdims: bool = False
     ) -> Self:
-        warnings.showwarning = self._custom_showwarning
-        try:
+        with self._warning_context():
             arr = self.data.mean(axis=axis, keepdims=keepdims)
-        finally:
-            warnings.showwarning = _ORIGINAL_SHOWWARNING
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
@@ -439,7 +484,8 @@ class Tensor:
         return out
 
     def astype(self, dtype: np.dtype | str) -> Self:
-        arr = self.data.astype(dtype)
+        with self._warning_context():
+            arr = self.data.astype(dtype)
         return Tensor(arr, dtype=arr.dtype, name=self.name)
 
     # Logical checks
@@ -456,8 +502,8 @@ class Tensor:
         axis: None | int | tuple[int, ...] = None,
         keepdims: bool = False,
     ) -> Self:
-        arr = np.linalg.norm(self.data, ord=ord, axis=axis, keepdims=keepdims)
-        # Wrap scalar/array result into Tensor
+        with self._warning_context():
+            arr = np.linalg.norm(self.data, ord=ord, axis=axis, keepdims=keepdims)
         return Tensor(arr, dtype=arr.dtype, name=None)
 
     # Additional tf.Tensor-like methods
@@ -465,7 +511,8 @@ class Tensor:
         """
         Clip (limit) the values in the tensor.
         """
-        arr = np.clip(self.data, clip_value_min, clip_value_max)
+        with self._warning_context():
+            arr = np.clip(self.data, clip_value_min, clip_value_max)
         return Tensor(arr, dtype=arr.dtype, name=self.name)
 
     def clip_by_norm(
@@ -474,17 +521,18 @@ class Tensor:
         """
         Clip tensor values by the given L2-norm.
         """
-        if axes is None:
-            total_norm = np.linalg.norm(self.data)
-            if total_norm > clip_norm:
-                arr = self.data * (clip_norm / total_norm)
+        with self._warning_context():
+            if axes is None:
+                total_norm = np.linalg.norm(self.data)
+                if total_norm > clip_norm:
+                    arr = self.data * (clip_norm / total_norm)
+                else:
+                    arr = self.data
             else:
-                arr = self.data
-        else:
-            # Compute norms along specified axes and broadcast
-            norms = np.linalg.norm(self.data, axis=axes, keepdims=True)
-            factor = clip_norm / np.maximum(norms, clip_norm)
-            arr = self.data * factor
+                # Compute norms along specified axes and broadcast
+                norms = np.linalg.norm(self.data, axis=axes, keepdims=True)
+                factor = clip_norm / np.maximum(norms, clip_norm)
+                arr = self.data * factor
         return Tensor(arr, dtype=arr.dtype, name=self.name)
 
     def __len__(self) -> int:

@@ -39,9 +39,36 @@ class Variable:
             initializer=self.__initializer,
         )
 
+    def flatten(self):
+        return self.__tensor.flatten()
+
+    def squeeze(self):
+        return self.__tensor.squeeze()
+
+    def reshape(self, *shape: int):
+        return self.__tensor.reshape(*shape)
+
+    def transpose(self, *axes: int):
+        return self.__tensor.transpose(*axes)
+
     def assign(self, value: np.typing.ArrayLike) -> Self:
         self.__tensor = Tensor(
-            value, shape=self.__tensor.shape, dtype=self.__tensor.dtype, name=self.__tensor.name
+            value,
+            shape=self.__tensor.shape,
+            dtype=self.__tensor.dtype,
+            name=self.__tensor.name,
+        )
+        return self
+
+    def assign_add(self, value: np.typing.ArrayLike) -> Self:
+        self.__tensor = Tensor(
+            self.__tensor.data + value,
+        )
+        return self
+
+    def assign_sub(self, value: np.typing.ArrayLike) -> Self:
+        self.__tensor = Tensor(
+            self.__tensor.data - value,
         )
         return self
 
@@ -104,7 +131,7 @@ class Variable:
     # --- Arithmetic Operators ---
     def __add__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return np.add(self.__tensor,  other_val)
+        return np.add(self.__tensor, other_val)
 
     def __radd__(self, other) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other

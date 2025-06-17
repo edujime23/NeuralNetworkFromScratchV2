@@ -1,5 +1,9 @@
+from abc import ABC, abstractmethod
+
 from ..types.tensor import Tensor
 
-class Initializer:
+
+class Initializer(ABC):
+    @abstractmethod
     def __call__(self, tensor: Tensor) -> Tensor:
-        raise NotImplementedError("Must be implemented by subclass.")
+        pass

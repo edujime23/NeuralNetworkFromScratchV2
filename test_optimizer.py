@@ -1,24 +1,37 @@
-from network.tape import GradientTape
-from network.optimizers import AdaDelta, AdaGrad, AdamOptimizer, Momentum, RMSProp, SGD
-from network.types import Variable
 import numpy as np
+
+from network.optimizers import (
+    Adam,
+    AdaptiveGradientClippingAddon,
+    L1L2RegularizationAddon,
+    NesterovMomentumAddon,
+)
+from network.tape import GradientTape
+from network.types import Variable
 
 np.random.seed(69)
 
-target = np.array([1 + -1j], dtype=np.complex128)
+target = np.array([2 + -1j], dtype=np.complex128).real
 
-w = Variable(value=[0.0 + 0.0j], trainable=True, name='w', initializer='ones')
+w = Variable(value=[0.0 + 0.0j], trainable=True, name="w", initializer="ones")
+w = Variable(value=[0.0], trainable=True, name="w", initializer="ones")
 w.initialize()
-
-opt = AdamOptimizer(1e-3)
+opt = Adam(1e-3)
 steps = int(1e4)
 
+opt.add_addon(NesterovMomentumAddon())
+opt.add_addon(L1L2RegularizationAddon())
+opt.add_addon(AdaptiveGradientClippingAddon())
+print(opt.summary())
+
+
 def func(x):
-    res = 2 ** (x ** x)
-    return res
+    return np.abs(np.sqrt(x)) ** (np.exp(x))
+
 
 def losss(x):
-    return (np.abs(x-target)**2)
+    return np.abs(x - target) ** 2
+
 
 def run_optimization():
     print("Step\tw value\tLoss")
@@ -27,7 +40,7 @@ def run_optimization():
             tape.watch(w)
             out = func(w)
             loss = losss(out)
-            
+
         grads = tape.gradient(loss, w)
 
         holo, anti = grads
@@ -35,8 +48,10 @@ def run_optimization():
         grad = holo
         opt.apply_gradients([(grad, w)])
 
-        if (i + 1) % (steps // 10) == 0:
-            print(f"{i+1}\tw = {w}\tloss = {loss}\tgrad_ho = {holo}\tgrad_anti = {anti}")
+        if (i + 1) % np.ceil(steps / 10) == 0:
+            print(
+                f"{i+1}\tw = {w}\tloss = {loss}\tgrad_ho = {holo}\tgrad_anti = {anti}"
+            )
 
         if np.all(loss < 1e-32):
             print(f"Converged at step {i+1}:  w = {w}  loss = {loss}")
@@ -45,5 +60,6 @@ def run_optimization():
     print(f"\nFinal parameter value after {steps} steps: w = {w}")
     print(f"Final loss value after {steps} steps: loss = {loss}")
     print(f"Final Function value after {steps} steps: out = {out}")
+
 
 run_optimization()
