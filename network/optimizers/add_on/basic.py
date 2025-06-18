@@ -132,17 +132,17 @@ class L1L2RegularizationAddon(OptimizerAddon):
     ):
         """Add regularization to the update."""
         if not variable.trainable:
-            return update
+            return update, variable
 
         reg_update = update
 
         # L1 regularization
         if self.l1 > 0:
-            reg_update += self.l1 * np.sign(variable.value)
+            reg_update = reg_update + self.l1 * np.sign(variable.value)
 
         # L2 regularization
         if self.l2 > 0:
-            reg_update += self.l2 * variable.value
+            reg_update = reg_update + self.l2 * variable.value
 
         return reg_update, variable
 
@@ -266,7 +266,7 @@ class WarmupSchedulerAddon(LearningRateSchedulerAddon):
 
 
 class NesterovMomentumAddon(OptimizerAddon):
-    """Nesterov momentum enhancement."""
+    """Nesterov momentum with look-ahead to any optimizer"""
 
     def __init__(self, momentum: float = 0.9, **kwargs):
         super().__init__(
@@ -283,29 +283,149 @@ class NesterovMomentumAddon(OptimizerAddon):
             if var.trainable:
                 context.optimizer.add_slot(var, "momentum")
 
-    def on_pre_apply_update(
+    def on_pre_update_step(
         self, context: AddonContext, gradient: Tensor, variable: Variable
-    ):
-        """
-        Apply Nesterov momentum:
-          1) v_new = β·v_prev + lr·grad(θ)
-          2) Δθ = β·v_new + lr·grad(θ)
-          3) θ ← θ - Δθ
-        """
+    ) -> tuple[Tensor, Variable]:
         if not variable.trainable:
-            return gradient  # nada que hacer
+            return gradient, variable
 
-        # 1) retrieve v_prev
-        v_prev = context.get_slot(variable, "momentum")
+        # Get momentum slot
+        momentum_slot = context.get_slot(variable, "momentum")
+        v_prev = momentum_slot.value
 
-        # 2) calculate v_new = β·v_prev + lr·grad
-        v_new = self.momentum * v_prev + gradient
-        # update the slot
-        v_prev.assign(v_new)
+        nesterov_gradient = self.momentum * v_prev + gradient
 
-        nesterov_update = self.momentum * v_new + gradient
+        momentum_slot.assign(nesterov_gradient)
 
-        return nesterov_update, variable
+        return nesterov_gradient, variable
+
+
+class LookaheadAddon(OptimizerAddon):
+    """
+    Lookahead optimizer addon that implements the k-step forward, 1-step back algorithm.
+
+    The algorithm maintains slow weights and periodically updates them by interpolating
+    with the fast weights after k optimization steps.
+    """
+
+    def __init__(self, k: int = 5, alpha: float = 0.5, **kwargs):
+        """
+        Initialize Lookahead addon.
+
+        Args:
+            k: Number of fast weight updates before slow weight update
+            alpha: Interpolation factor for slow weight update (0 < alpha <= 1)
+        """
+        super().__init__(
+            name=kwargs.get("name", "lookahead"),
+            priority=AddonPriority.NORMAL,
+            requires_slots=["slow_weights"],
+            **kwargs,
+        )
+
+        if not (0 < alpha <= 1):
+            raise ValueError(f"alpha must be in (0, 1], got {alpha}")
+        if k < 1:
+            raise ValueError(f"k must be >= 1, got {k}")
+
+        self.k = k  # Update frequency
+        self.alpha = alpha  # Interpolation factor
+        self._step_count = 0
+        self._initialized = False
+
+    def on_post_build(self, context: AddonContext, var_list, slots):
+        """Initialize slow weights slots."""
+        for var in var_list:
+            if var.trainable:
+                context.optimizer.add_slot(var, "slow_weights", dtype=var.dtype)
+
+    def on_post_apply_gradients(self, context: AddonContext, grads_and_vars) -> None:
+        """
+        Called after all gradients are applied. This is where we perform the
+        lookahead update logic.
+        """
+        if not self._initialized:
+            self._initialize_slow_weights(context, grads_and_vars)
+            self._initialized = True
+            return
+
+        self._step_count += 1
+
+        # Perform lookahead update every k steps
+        if self._step_count % self.k == 0:
+            self._perform_lookahead_update(context, grads_and_vars)
+
+    def _initialize_slow_weights(self, context: AddonContext, grads_and_vars):
+        """Initialize slow weights with current fast weights."""
+        for grad, var in grads_and_vars:
+            if var.trainable and grad is not None:
+                slow_weights = context.get_slot(var, "slow_weights")
+                slow_weights.assign(var.value)
+
+    def _perform_lookahead_update(self, context: AddonContext, grads_and_vars):
+        """
+        Perform the lookahead update:
+        φ_t = φ_{t-k} + α(θ_t - φ_{t-k})
+        θ_t = φ_t
+
+        Where:
+        - φ_t: slow weights at step t
+        - θ_t: fast weights at step t
+        - α: interpolation factor
+        """
+        for grad, var in grads_and_vars:
+            if var.trainable and grad is not None:
+                slow_weights = context.get_slot(var, "slow_weights")
+
+                # φ_t = φ_{t-k} + α(θ_t - φ_{t-k})
+                # Equivalent to: φ_t = (1-α)φ_{t-k} + αθ_t
+                new_slow_weights = (
+                    1.0 - self.alpha
+                ) * slow_weights.value + self.alpha * var.value
+
+                # Update slow weights
+                slow_weights.assign(new_slow_weights)
+
+                # Set fast weights to new slow weights: θ_t = φ_t
+                var.assign(new_slow_weights)
+
+    def on_pre_step(self, context: AddonContext) -> None:
+        """Log lookahead status at the beginning of each step."""
+        if context.step % (self.k * 10) == 0:  # Log every 10 lookahead cycles
+            next_update_step = ((context.step // self.k) + 1) * self.k
+            self._logger.debug(
+                f"Lookahead: step {context.step}, "
+                f"next update at step {next_update_step}, "
+                f"total updates: {context.step // self.k}"
+            )
+
+    def reset_step_count(self):
+        """Reset the internal step counter. Useful for resuming training."""
+        self._step_count = 0
+        self._initialized = False
+
+    def get_config(self) -> dict[str, Any]:
+        """Return addon configuration including hyperparameters."""
+        config = super().get_config()
+        config.update(
+            {
+                "k": self.k,
+                "alpha": self.alpha,
+                "step_count": self._step_count,
+                "initialized": self._initialized,
+            }
+        )
+        return config
+
+    @property
+    def next_update_step(self) -> int:
+        """Return the step number when next lookahead update will occur."""
+        return ((self._step_count // self.k) + 1) * self.k
+
+    @property
+    def updates_performed(self) -> int:
+        """Return the number of lookahead updates performed so far."""
+        return self._step_count // self.k
 
 
 # ==================== LOGGING AND MONITORING ADD-ONS ====================
@@ -549,64 +669,3 @@ class GradientAccumulationAddon(OptimizerAddon):
                     acc_slot.assign(np.zeros_like(acc_slot.value))
 
         return accumulated_grads_and_vars
-
-
-# ==================== UTILITY FUNCTIONS ====================
-
-
-def create_standard_addons(
-    clip_norm: float | None = None,
-    l1_reg: float = 0.0,
-    l2_reg: float = 0.0,
-    learning_rate: float | None = None,
-    warmup_steps: int = 0,
-    log_frequency: int = 100,
-    early_stopping_patience: int | None = None,
-) -> list[OptimizerAddon]:
-    """Create a standard set of commonly used addons."""
-    addons = []
-
-    # Gradient clipping
-    if clip_norm:
-        addons.append(GradientClippingAddon(clip_norm=clip_norm))
-
-    # Regularization
-    if l1_reg > 0 or l2_reg > 0:
-        addons.append(L1L2RegularizationAddon(l1=l1_reg, l2=l2_reg))
-
-    # Learning rate scheduling
-    if learning_rate and warmup_steps > 0:
-        addons.append(WarmupSchedulerAddon(learning_rate, warmup_steps))
-
-    # Logging
-    addons.append(LoggingAddon(log_frequency=log_frequency))
-
-    # Early stopping
-    if early_stopping_patience:
-        addons.append(EarlyStoppingAddon(patience=early_stopping_patience))
-
-    return addons
-
-
-def create_advanced_addons(
-    adaptive_clipping: bool = False,
-    nesterov_momentum: bool = False,
-    gradient_noise: bool = False,
-    accumulate_steps: int | None = None,
-) -> list[OptimizerAddon]:
-    """Create advanced optimization addons."""
-    addons = []
-
-    if adaptive_clipping:
-        addons.append(AdaptiveGradientClippingAddon())
-
-    if nesterov_momentum:
-        addons.append(NesterovMomentumAddon())
-
-    if gradient_noise:
-        addons.append(AdaptiveNoiseAddon())
-
-    if accumulate_steps:
-        addons.append(GradientAccumulationAddon(accumulate_steps=accumulate_steps))
-
-    return addons

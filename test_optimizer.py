@@ -3,7 +3,9 @@ import numpy as np
 from network.optimizers import (
     Adam,
     AdaptiveGradientClippingAddon,
+    AdaptiveNoiseAddon,
     L1L2RegularizationAddon,
+    LookaheadAddon,
     NesterovMomentumAddon,
 )
 from network.tape import GradientTape
@@ -11,17 +13,20 @@ from network.types import Variable
 
 np.random.seed(69)
 
-target = np.array([2 + -1j], dtype=np.complex128).real
+target = np.array([2 + -1j], dtype=np.complex128)
 
 w = Variable(value=[0.0 + 0.0j], trainable=True, name="w", initializer="ones")
-w = Variable(value=[0.0], trainable=True, name="w", initializer="ones")
+# w = Variable(value=[0.0], trainable=True, name="w", initializer="ones")
 w.initialize()
 opt = Adam(1e-3)
 steps = int(1e4)
 
 opt.add_addon(NesterovMomentumAddon())
-opt.add_addon(L1L2RegularizationAddon())
+opt.add_addon(L1L2RegularizationAddon(1e-6, 1e-6))
 opt.add_addon(AdaptiveGradientClippingAddon())
+opt.add_addon(AdaptiveNoiseAddon())
+opt.add_addon(LookaheadAddon())
+
 print(opt.summary())
 
 

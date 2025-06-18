@@ -25,7 +25,9 @@ from .basic import (
     L1L2RegularizationAddon,
     LearningRateSchedulerAddon,
     LoggingAddon,
+    LookaheadAddon,
     NesterovMomentumAddon,
+    WarmupSchedulerAddon,
 )
 
 __all__ = [
@@ -54,4 +56,6 @@ __all__ = [
     "LearningRateSchedulerAddon",
     "LoggingAddon",
     "NesterovMomentumAddon",
+    "WarmupSchedulerAddon",
+    "LookaheadAddon",
 ]
