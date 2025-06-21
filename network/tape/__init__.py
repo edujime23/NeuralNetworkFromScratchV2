@@ -1,8 +1,5 @@
 from .gradient import (
-    GRADIENTS,
-    DerivativeConfig,
     GradientTape,
-    WirtingerDifferentiator,
     numerical_derivative,
 )
 

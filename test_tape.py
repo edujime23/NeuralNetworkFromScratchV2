@@ -9,7 +9,7 @@ z = Tensor([1 + 1j, 2 + 2j, 3 + 3j], dtype=np.complex128)
 
 
 def func(u):
-    return u**2
+    return np.abs(u) ** 2
 
 
 with GradientTape() as tape:
@@ -20,6 +20,7 @@ with GradientTape() as tape:
     #     print("   func is:", node.func, "   name:", node.func.__name__, "   result:", node.result, "   inputs:", node.inputs)
 
 dx, dy, dz = tape.gradient(r, [x, y, z])
+print(r)
 print("∂r/∂x =", np.round(dx, 3))
 print("∂r/∂y =", np.round(dy, 3))
 print("∂r/∂z =", np.round(dz, 3))

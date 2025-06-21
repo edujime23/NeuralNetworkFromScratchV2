@@ -10,13 +10,13 @@ def relu(x):
 
 
 np.random.seed(0)
-dense = Dense(units=1, activation=relu, name="linear")
+dense = Dense(units=1, activation=lambda x: x, name="linear")
 
 # Create a toy dataset: y = 3x + 2
 X = np.random.randn(100, 1).astype(np.float32)
 Y = X + 1
 
-optimizer = Adam(learning_rate=1e-3)
+optimizer = Adam(lr=1e-3)
 
 
 def mse(pred, target):
@@ -31,7 +31,9 @@ for step in range(10000):
         loss = mse(preds, Y)
 
     grad_k, grad_b = tape.gradient(loss, [dense.kernel, dense.bias])
-    optimizer.apply_gradients([(grad_k[0], dense.kernel), (grad_b[0], dense.bias)])
+    optimizer.apply_gradients(
+        [(grad_k[0] + grad_k[1], dense.kernel), (grad_b[0] + grad_b[1], dense.bias)]
+    )
 
     if step % 1000 == 0:
         print(f"grad_k: {grad_k[0]} grad_b: {grad_b[0]}")

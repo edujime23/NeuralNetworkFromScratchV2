@@ -1,10 +1,7 @@
-from .gradient_tape import GradientTape
-from .funcs import GRADIENTS, numerical_derivative, WirtingerDifferentiator, DerivativeConfig
+from .api import GradientTape
+from .funcs import numerical_derivative
 
 __all__ = [
     "GradientTape",
-    "GRADIENTS",
     "numerical_derivative",
-    "WirtingerDifferentiator",
-    "DerivativeConfig"
 ]

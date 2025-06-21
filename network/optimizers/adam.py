@@ -34,7 +34,9 @@ class Adam(Optimizer):
             self.add_slot(var, "m", dtype)
             self.add_slot(var, "v", dtype)
 
-    def update_step(self, grad: Tensor, slots: dict[str, Variable]) -> None:
+    def update_step(
+        self, gradient: Tensor, variable: Variable, slots: dict[str, Variable]
+    ) -> Tensor:
         m = slots["m"]
         v = slots["v"]
 
@@ -44,9 +46,9 @@ class Adam(Optimizer):
 
         # Call the generic-rank helper (no explicit signature)
         m_new, v_new, var_update = self._update_step_math(
-            m.numpy,  # raw NumPy array for m-slot
-            v.numpy,  # raw NumPy array for v-slot
-            grad.numpy,  # raw NumPy array of gradient
+            m.numpy,
+            v.numpy,
+            gradient.numpy,
             self.beta_1,
             self.beta_2,
             self.epsilon,
@@ -58,7 +60,7 @@ class Adam(Optimizer):
         # Write results back into the slot Variables
         m.assign(m_new)
         v.assign(v_new)
-        return var_update
+        return Tensor(var_update)
 
     @staticmethod
     @njit(parallel=True, fastmath=True, cache=True, nogil=True)

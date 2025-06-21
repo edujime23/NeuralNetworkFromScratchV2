@@ -6,7 +6,7 @@ from ..callbacks.base import Callback
 from ..layers.base import Layer
 from ..metrics.base import Metric
 from ..optimizers.base import Optimizer
-from ..tape.gradient.gradient_tape import GradientTape
+from ..tape.gradient.api import GradientTape
 from ..types.tensor import Tensor
 from ..types.variable import Variable
 

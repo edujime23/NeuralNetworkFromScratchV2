@@ -1,37 +1,32 @@
 import numpy as np
 
-from network.optimizers import (
-    Adam,
-    AdaptiveGradientClippingAddon,
-    AdaptiveNoiseAddon,
-    L1L2RegularizationAddon,
-    LookaheadAddon,
-    NesterovMomentumAddon,
+from network.optimizers import Adam
+from network.plugins.optimizer import (
+    AdaptiveGradientClippingPlugin,
 )
 from network.tape import GradientTape
 from network.types import Variable
 
 np.random.seed(69)
 
-target = np.array([2 + -1j], dtype=np.complex128)
+target = np.array([-1 + 0j], dtype=np.complex128)
 
-w = Variable(value=[0.0 + 0.0j], trainable=True, name="w", initializer="ones")
+w = Variable(value=[np.e + np.pi * 1j], trainable=True, name="w", initializer="ones")
 # w = Variable(value=[0.0], trainable=True, name="w", initializer="ones")
-w.initialize()
-opt = Adam(1e-3)
+opt = Adam(5e-3)
 steps = int(1e4)
 
-opt.add_addon(NesterovMomentumAddon())
-opt.add_addon(L1L2RegularizationAddon(1e-6, 1e-6))
-opt.add_addon(AdaptiveGradientClippingAddon())
-opt.add_addon(AdaptiveNoiseAddon())
-opt.add_addon(LookaheadAddon())
+# opt.add_addon(NesterovMomentumAddon(momentum=0.99))
+# opt.add_addon(L1L2RegularizationAddon(1e-6, 1e-6))
+opt.add_plugin(AdaptiveGradientClippingPlugin())
+# opt.add_addon(AdaptiveNoiseAddon())
+# opt.add_addon(LookaheadAddon(k=5, alpha=0.5))
 
 print(opt.summary())
 
 
 def func(x):
-    return np.abs(np.sqrt(x)) ** (np.exp(x))
+    return np.exp(x)
 
 
 def losss(x):
@@ -50,7 +45,7 @@ def run_optimization():
 
         holo, anti = grads
 
-        grad = holo
+        grad = anti + holo
         opt.apply_gradients([(grad, w)])
 
         if (i + 1) % np.ceil(steps / 10) == 0:
