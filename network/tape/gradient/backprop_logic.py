@@ -9,9 +9,9 @@ import numpy as np
 
 from ...types import Tensor  # Assuming Tensor is defined
 from .funcs import (  # Assuming these are defined in a sibling module
-    GRADIENTS,
     numerical_derivative,
 )
+from .registry import gradients
 from .types import Gradient, OpNode
 
 # Assuming GradientTapeCore is available for its utility methods
@@ -34,7 +34,7 @@ def _compute_raw_gradients(
     name = node.func.__name__
     raw_grads: Any
 
-    if grad_func := GRADIENTS.get(name):
+    if grad_func := gradients.get(name):
         try:
             raw_grads = grad_func(
                 (grad_res.holomorphic, grad_res.antiholomorphic),

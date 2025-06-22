@@ -1,42 +1,36 @@
-from .aggregation import AggregationGradients
-from .angle import AngleGradients
-from .arithmetic import ArithmeticGradients
-from .exponential import ExponentialGradients
-from .hyperbolic import HyperbolicGradients
-from .logarithmic import LogarithmicGradients
-from .matrix import MatrixGradients
-from .rounding import RoundingGradients
-from .shape import ShapeGradients
-from .special import SpecialGradients
-from .trigonometric import TrigonometricGradients
-from .numerical import numerical_derivative, WirtingerDifferentiator, DerivativeConfig
+from . import (
+    aggregation,
+    angle,
+    arithmetic,
+    exponential,
+    hyperbolic,
+    logarithmic,
+    matrix,
+    numerical,
+    rounding,
+    shape,
+    special,
+    trigonometric,
+)
+from .numerical import DerivativeConfig, WirtingerDifferentiator, numerical_derivative
 from .util import complex_log, epsilon
 
-GRADIENTS: dict[str, object] = {}
-
-for gradients in (
-    AggregationGradients,
-    AngleGradients,
-    ArithmeticGradients,
-    ExponentialGradients,
-    HyperbolicGradients,
-    LogarithmicGradients,
-    MatrixGradients,
-    RoundingGradients,
-    ShapeGradients,
-    SpecialGradients,
-    TrigonometricGradients,
-):
-    for name, func in gradients.__dict__.items():
-        if name.startswith('__') or not callable(func):
-            continue
-        GRADIENTS[name] = func
-
 __all__ = [
-    'GRADIENTS',
-    'numerical_derivative',
-    'WirtingerDifferentiator',
-    'DerivativeConfig'
+    "DerivativeConfig",
+    "WirtingerDifferentiator",
+    "numerical_derivative",
+    "complex_log",
+    "epsilon",
+    "aggregation",
+    "angle",
+    "arithmetic",
+    "exponential",
+    "hyperbolic",
+    "logarithmic",
+    "matrix",
+    "numerical",
+    "rounding",
+    "shape",
+    "special",
+    "trigonometric",
 ]
-
-__all__.extend(GRADIENTS.keys())

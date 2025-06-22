@@ -1,15 +1,11 @@
-# autodiff/tape/op_node.py
-
+# autodiff/tape/types.py
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from ....types import (
-        Tensor,  # Assuming Tensor is defined in a parent/sibling module
-    )
+from ...types import Tensor
 
 
 @dataclass

@@ -1,10 +1,12 @@
 import numpy as np
 
 from ....types import Tensor
+from ..registry import def_grad
 from .util import complex_log, epsilon
 
 
 class ArithmeticGradients:
+    @def_grad
     @staticmethod
     def add(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         a, b = inputs
@@ -16,6 +18,7 @@ class ArithmeticGradients:
             gah = np.zeros_like(grad_output)
         return [(gh, gah), (gh, gah)]
 
+    @def_grad
     @staticmethod
     def subtract(
         grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
@@ -29,6 +32,7 @@ class ArithmeticGradients:
             gah = np.zeros_like(grad_output)
         return [(gh, gah), (-gh, -gah)]
 
+    @def_grad
     @staticmethod
     def multiply(
         grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
@@ -49,6 +53,7 @@ class ArithmeticGradients:
         grad_b_ah = gah * a + gh * np.conj(a)
         return [(grad_a_h, grad_a_ah), (grad_b_h, grad_b_ah)]
 
+    @def_grad
     @staticmethod
     def divide(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         a, b = inputs
@@ -72,6 +77,7 @@ class ArithmeticGradients:
         )
         return [(grad_a_h, grad_a_ah), (grad_b_h, grad_b_ah)]
 
+    @def_grad
     @staticmethod
     def floor_divide(
         grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
@@ -82,6 +88,7 @@ class ArithmeticGradients:
         zero_b = (np.zeros_like(b), np.zeros_like(b))
         return [zero_a, zero_b]
 
+    @def_grad
     @staticmethod
     def remainder(
         grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
@@ -97,6 +104,7 @@ class ArithmeticGradients:
         floor_div = np.floor(a / (b + epsilon))
         return [(gh, gah), (-gh * floor_div, -gah * floor_div)]
 
+    @def_grad
     @staticmethod
     def power(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         base, exp = inputs
@@ -140,6 +148,7 @@ class ArithmeticGradients:
 
     float_power = power
 
+    @def_grad
     @staticmethod
     def fmod(grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]):
         a, b = inputs
@@ -154,6 +163,7 @@ class ArithmeticGradients:
             trunc_div = np.trunc(a / (b + epsilon))
         return [(gh, gah), (-gh * trunc_div, -gah * trunc_div)]
 
+    @def_grad
     @staticmethod
     def negative(
         grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]
@@ -166,6 +176,7 @@ class ArithmeticGradients:
             gah = np.zeros_like(grad_output)
         return [(-gh, -gah)]
 
+    @def_grad
     @staticmethod
     def absolute(
         grad_output: Tensor | tuple[Tensor, Tensor], inputs: tuple[Tensor, ...]

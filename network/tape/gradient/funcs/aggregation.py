@@ -4,10 +4,12 @@ from typing import Any
 import numpy as np
 
 from ....types import Tensor
+from ..registry import def_grad
 from .util import epsilon
 
 
 class AggregationGradients:
+    @def_grad
     @staticmethod
     def sum(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -27,6 +29,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def mean(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -57,6 +60,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def nanmean(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -79,9 +83,7 @@ class AggregationGradients:
             mask_sum = np.sum(mask)
 
         grad_h = grad_output_h * mask / (mask_sum + epsilon)
-        grad_ah = (
-            grad_output_ah * mask / (mask_sum + epsilon)
-        )
+        grad_ah = grad_output_ah * mask / (mask_sum + epsilon)
 
         if np.iscomplexobj(x):
             grad_h = np.conj(grad_h)
@@ -89,6 +91,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def prod(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -112,6 +115,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def max(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -152,6 +156,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def maximum(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -208,6 +213,7 @@ class AggregationGradients:
 
         return [(grad_a_h, grad_a_ah), (grad_b_h, grad_b_ah)]
 
+    @def_grad
     @staticmethod
     def min(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -248,6 +254,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def minimum(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -304,6 +311,7 @@ class AggregationGradients:
 
         return [(grad_a_h, grad_a_ah), (grad_b_h, grad_b_ah)]
 
+    @def_grad
     @staticmethod
     def std(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -332,6 +340,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def nanstd(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -368,6 +377,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def var(
         grad_output: Tensor | tuple[Tensor, Tensor],
@@ -394,6 +404,7 @@ class AggregationGradients:
 
         return [(grad_h, grad_ah)]
 
+    @def_grad
     @staticmethod
     def nanvar(
         grad_output: Tensor | tuple[Tensor, Tensor],
