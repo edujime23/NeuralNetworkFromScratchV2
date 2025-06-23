@@ -11,7 +11,7 @@ np.random.seed(69)
 
 target = np.array([-1 + 0j], dtype=np.complex128)
 
-w = Variable(value=[np.e + np.pi * 1j], trainable=True, name="w", initializer="ones")
+w = Variable(value=[np.pi + np.e * 1j], trainable=True, name="w", initializer="ones")
 # w = Variable(value=[0.0], trainable=True, name="w", initializer="ones")
 opt = Adam(5e-3)
 steps = int(1e4)
@@ -26,7 +26,7 @@ print(opt.summary())
 
 
 def func(x):
-    return np.exp(x)
+    return x  # np.exp(x)
 
 
 def losss(x):
@@ -41,16 +41,15 @@ def run_optimization():
             out = func(w)
             loss = losss(out)
 
-        grads = tape.gradient(loss, w)
+        grad = tape.gradient(loss, w)[0]
 
-        holo, anti = grads
+        holo, anti, total = grad.h, grad.ah, grad.total
 
-        grad = anti + holo
-        opt.apply_gradients([(grad, w)])
+        opt.apply_gradients([(anti, w)])
 
         if (i + 1) % np.ceil(steps / 10) == 0:
             print(
-                f"{i+1}\tw = {w}\tloss = {loss}\tgrad_ho = {holo}\tgrad_anti = {anti}"
+                f"{i+1}\tw = {w}\tloss = {loss}\n\tgrad_ho = {holo}\tgrad_anti = {anti}\tgrad_total = {total}"
             )
 
         if np.all(loss < 1e-32):

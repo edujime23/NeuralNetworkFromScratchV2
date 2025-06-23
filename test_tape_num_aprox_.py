@@ -8,14 +8,15 @@ y = Variable([1 + 1j, 2 + 2j, 3 + 3j], dtype=np.complex128)
 
 
 def func(u):
-    val = u**2
+    val = np.abs(u)
+    val = val**2
     return val
 
 
 with GradientTape() as tape:
     tape.watch(x, y)
-    z = func(x)
+    z = func(y)
 
 dx, dy = tape.gradient(z, [x, y])
-print("∂z/∂x =", np.round(dx, 3))
-print("∂z/∂y =", np.round(dy, 3))
+print("∂z/∂x =", dx)
+print("∂z/∂y =", dy)

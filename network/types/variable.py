@@ -21,7 +21,9 @@ class Variable:
         name: str | None = None,
         initializer: Initializer | Callable | str | None = None,
     ):
-        self.__tensor = Tensor(value=value, shape=shape, dtype=dtype, name=name)
+        self.__tensor = Tensor(
+            value=value, shape=shape, dtype=dtype, name=f"{name}/Tensor"
+        )
         self.__trainable = trainable or True
 
         if isinstance(initializer, str):
@@ -52,22 +54,23 @@ class Variable:
         return self.__tensor.transpose(*axes)
 
     def assign(self, value: np.typing.ArrayLike) -> Self:
+        if value.shape != self.shape:
+            raise ValueError(
+                f"Cannot assign value with shape {value.shape} to Variable with shape {self.shape}. Shapes must match for in-place assignment."
+            )
         self.__tensor = Tensor(
-            value,
-            shape=self.__tensor.shape,
-            dtype=self.__tensor.dtype,
-            name=self.__tensor.name,
+            value=value, shape=self.shape, dtype=self.dtype, name=f"{self.name}/Tensor"
         )
         return self
 
     def assign_add(self, value: np.typing.ArrayLike) -> Self:
-        self.__tensor = Tensor(
+        self.assign(
             self.__tensor.data + value,
         )
         return self
 
     def assign_sub(self, value: np.typing.ArrayLike) -> Self:
-        self.__tensor = Tensor(
+        self.assign(
             self.__tensor.data - value,
         )
         return self

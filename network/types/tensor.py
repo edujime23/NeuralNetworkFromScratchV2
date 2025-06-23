@@ -25,7 +25,7 @@ class Tensor:
       - Casting:  t.astype(np.float32)
       - Additional "tf-like" methods:  clip_by_value, clip_by_norm, get_shape, rank, eval
       - If you call any NumPy ufunc or function on a Tensor, it returns a new Tensor
-        and (in a real TF scenario) would call GradientTape.record(...) so that
+        and (in a real TF scenario) would call GradientTape._record_operation(...) so that
         autodiff "sees" every primitive. Here, we simulate the recording hooks.
     """
 
@@ -263,9 +263,8 @@ class Tensor:
             out = Tensor(np.asarray(result_array), name=None)
 
         if tapes:
-            tapes[-1].record(
-                ufunc,
-                method,
+            tapes[-1]._record_operation(
+                ufunc.__name__,
                 tensor_inputs,
                 kwargs,
                 out,
@@ -297,9 +296,8 @@ class Tensor:
             out = Tensor(np.asarray(result_array), name=None)
 
         if tapes:
-            tapes[-1].record(
-                func,
-                "__call__",
+            tapes[-1]._record_operation(
+                func.__name__,
                 tensor_inputs,
                 kwargs,
                 out,
@@ -386,7 +384,7 @@ class Tensor:
         out = Tensor(sliced, dtype=sliced.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.__getitem__, "__call__", (self,), {}, out
                 )
         return out
@@ -403,7 +401,7 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.reshape, "__call__", (self,), {"newshape": shape}, out
                 )
         return out
@@ -414,7 +412,7 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.transpose,
                     "__call__",
                     (self,),
@@ -432,7 +430,7 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=self.name)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.flatten, "__call__", (self,), {}, out
                 )
         return out
@@ -443,7 +441,7 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=self.name, shape=arr.shape)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.squeeze, "__call__", (self,), {}, out
                     )
         return out
@@ -457,7 +455,7 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.sum,
                     "__call__",
                     (self,),
@@ -474,7 +472,7 @@ class Tensor:
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
-                tapes[-1].record(
+                tapes[-1]._record_operation(
                     np.ndarray.mean,
                     "__call__",
                     (self,),

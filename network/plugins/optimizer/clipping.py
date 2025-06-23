@@ -60,9 +60,10 @@ class AdaptiveGradientClippingPlugin(Plugin):
         total_norm_sq = 0.0
         for g, _ in grads_and_vars:
             if g is not None:
-                total_norm_sq += float((g**2).sum())
+                # Use np.abs(g)**2 to correctly handle complex numbers' squared magnitude
+                total_norm_sq += float(np.sum(np.abs(g) ** 2))
 
-        total_norm = total_norm_sq**0.5
+        total_norm = np.sqrt(total_norm_sq)  # Use np.sqrt for consistency
 
         # Initialize or update running average
         if self.running_norm is None:
@@ -83,8 +84,10 @@ class AdaptiveGradientClippingPlugin(Plugin):
                 clipped.append((grad, var))
                 continue
 
-            grad_norm = float((grad**2).sum() ** 0.5)
+            # Calculate gradient norm using np.abs for complex numbers
+            grad_norm = float(np.sqrt(np.sum(np.abs(grad) ** 2)))
             if grad_norm > threshold and grad_norm > 0:
+                # This scaling correctly handles complex numbers, preserving their phase
                 clipped_grad = grad * (threshold / grad_norm)
             else:
                 clipped_grad = grad
@@ -125,7 +128,7 @@ class AdaptivePercentileClippingPlugin(Plugin):
         if not grads_and_vars:
             return context
 
-        # Collect all gradient magnitudes
+        # Collect all gradient magnitudes. np.abs handles complex numbers correctly.
         all_mags = []
         for g, _ in grads_and_vars:
             if g is not None:
@@ -134,7 +137,7 @@ class AdaptivePercentileClippingPlugin(Plugin):
         if not all_mags:
             return context
 
-        # Compute current percentile threshold
+        # Compute current percentile threshold on magnitudes
         current_threshold = np.percentile(all_mags, self.percentile)
 
         # Update running threshold
@@ -153,6 +156,19 @@ class AdaptivePercentileClippingPlugin(Plugin):
                 clipped.append((grad, var))
                 continue
 
+            # np.clip works element-wise. If 'grad' is complex, it will clip
+            # the real and imaginary parts independently based on the real threshold.
+            # If the intent is to clip the magnitude of each complex element while
+            # preserving its phase, a different approach is needed:
+            # clipped_grad = grad / np.maximum(1.0, np.abs(grad) / self.running_threshold)
+            # The current implementation (np.clip with real bounds) will implicitly
+            # treat complex numbers as having real and imaginary components
+            # independently clipped, which is a common interpretation for this function.
+            # To preserve type: if grad is complex, the output of np.clip might
+            # implicitly cast it to a real type if all imaginary parts become zero
+            # after clipping. To strictly maintain complex type, you'd need to ensure
+            # the original complex type is preserved, which np.clip does on its own
+            # when the input is complex.
             clipped_grad = np.clip(
                 grad, -self.running_threshold, self.running_threshold
             )
@@ -199,7 +215,8 @@ class StochasticGradientClippingPlugin(Plugin):
                 clipped.append((grad, var))
                 continue
 
-            grad_norm = float(np.sqrt(np.sum(grad**2)))
+            # Calculate gradient norm using np.abs for complex numbers
+            grad_norm = float(np.sqrt(np.sum(np.abs(grad) ** 2)))
 
             # Compute clipping probability based on magnitude
             clip_prob = self.max_clip_prob * (
@@ -208,6 +225,7 @@ class StochasticGradientClippingPlugin(Plugin):
 
             # Stochastic clipping decision
             if np.random.random() < clip_prob:
+                # This scaling correctly handles complex numbers, preserving their phase
                 clipped_grad = grad * (self.base_threshold / max(grad_norm, 1e-8))
             else:
                 clipped_grad = grad

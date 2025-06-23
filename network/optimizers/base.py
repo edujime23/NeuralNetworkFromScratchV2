@@ -190,28 +190,23 @@ class Optimizer(ABC, OptimizerPluginMixin):
             if grad is None or not var.trainable:
                 continue
 
-            # Complex conjugate for complex support
-            processed_grad = np.conj(grad) if np.iscomplexobj(grad) else grad
-
             # Get optimizer slots
             slots = {
                 slot_name: self.get_slot(var, slot_name) for slot_name in self._slots
             }
 
             # Pre-update step hook
-            context = self.create_context(
-                gradient=processed_grad, variable=var, slots=slots
-            )
+            context = self.create_context(gradient=grad, variable=var, slots=slots)
             result = self._call_hooks(
                 OptimizerHookPoints.PRE_UPDATE_STEP.value, context
             )
 
             if isinstance(result, PluginContext):
-                processed_grad = result.metadata.get("gradient", processed_grad)
+                grad = result.metadata.get("gradient", grad)
                 var = result.metadata.get("variable", var)
 
             # Compute update
-            update = self.update_step(processed_grad, var, slots)
+            update = self.update_step(grad, var, slots)
 
             # Pre-apply update hook
             context = self.create_context(update=update, variable=var)
@@ -224,9 +219,7 @@ class Optimizer(ABC, OptimizerPluginMixin):
                 var = result.metadata.get("variable", var)
 
             # Post-update step hook
-            context = self.create_context(
-                gradient=processed_grad, variable=var, update=update
-            )
+            context = self.create_context(gradient=grad, variable=var, update=update)
             self._call_hooks(OptimizerHookPoints.POST_UPDATE_STEP.value, context)
 
             # Ensure dtype consistency

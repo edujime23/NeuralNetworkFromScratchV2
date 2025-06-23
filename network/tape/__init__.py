@@ -1,6 +1,5 @@
-from .gradient import (
+from .gradient import (  # numerical_derivative,
     GradientTape,
-    numerical_derivative,
 )
 
 __all__ = [

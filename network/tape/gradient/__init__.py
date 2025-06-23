@@ -1,7 +1,5 @@
+from . import ops
 from .api import GradientTape
-from .funcs import numerical_derivative
+from .types import Gradient, OpNode
 
-__all__ = [
-    "GradientTape",
-    "numerical_derivative",
-]
+__all__ = ["GradientTape", "Gradient", "OpNode", "ops"]

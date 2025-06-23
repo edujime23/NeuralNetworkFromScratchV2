@@ -24,7 +24,6 @@ class Adam(Optimizer):
         super().__init__(lr=lr)
         self.beta_1 = beta_1
         self.beta_2 = beta_2
-        # If epsilon is None, use float32 machine epsilon
         self.epsilon = epsilon if epsilon is not None else np.finfo(np.float32).eps
 
     def build(

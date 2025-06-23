@@ -21,6 +21,6 @@ with GradientTape() as tape:
 
 dx, dy, dz = tape.gradient(r, [x, y, z])
 print(r)
-print("∂r/∂x =", np.round(dx, 3))
-print("∂r/∂y =", np.round(dy, 3))
-print("∂r/∂z =", np.round(dz, 3))
+print("∂r/∂x =", dx)
+print("∂r/∂y =", dy)
+print("∂r/∂z =", dz)
