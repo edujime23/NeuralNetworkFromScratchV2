@@ -2,7 +2,8 @@ from typing import Any
 
 import numpy as np
 
-from ..base.plugin import Plugin, PluginContext, PluginHookPoint
+from network.plugins.base.plugin import Plugin, PluginContext, PluginHookPoint
+
 from .hooks import OptimizerHookPoints
 
 

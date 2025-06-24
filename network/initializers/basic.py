@@ -1,6 +1,7 @@
 import numpy as np
 
-from ..types.tensor import Tensor
+from network.types.tensor import Tensor
+
 from .base import Initializer
 
 

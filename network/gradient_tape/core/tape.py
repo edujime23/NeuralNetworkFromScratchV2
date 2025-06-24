@@ -4,10 +4,11 @@ import warnings
 
 import numpy as np
 
-from ....queues.tapes import tapes
-from ....types.tensor import Tensor
-from ....types.variable import Variable
-from ..types import Gradient, OpNode
+from network.gradient_tape.types import Gradient, OpNode
+from network.queues.tapes import tapes
+from network.types.tensor import Tensor
+from network.types.variable import Variable
+
 from .registry import registry
 
 
@@ -22,7 +23,7 @@ class GradientTapeCore:
         self._nodes: dict[int, OpNode] = {}
         self._is_used: bool = False
 
-    def watch(self, *tensors: Tensor):
+    def _watch(self, *tensors: Tensor):
         """Internal watch method."""
         for t in tensors:
             self._watched.add(id(t))
@@ -35,21 +36,41 @@ class GradientTapeCore:
             return
 
         tape = tapes[-1]
-        normalized_inputs = [
-            inp.value if isinstance(inp, Variable) else inp for inp in inputs
-        ]
 
-        if relevant_inputs := [
-            inp
-            for inp in normalized_inputs
-            if id(inp) in tape._watched or id(inp) in tape._nodes
-        ]:
-            tape.watch(result)
-            parents = [
-                tape._nodes[id(p)] for p in relevant_inputs if id(p) in tape._nodes
-            ]
+        normalized_inputs = tuple(
+            inp.value if isinstance(inp, Variable) else inp for inp in inputs
+        )
+
+        should_record = False
+        for inp_tensor in normalized_inputs:
+            if id(inp_tensor) in tape._watched or id(inp_tensor) in tape._nodes:
+                should_record = True
+                break
+
+        normalized_kwargs_tensors = []
+        for k, v in kwargs.items():
+            if isinstance(v, (Tensor, Variable)):
+                normalized_kwargs_tensors.append(
+                    v.value if isinstance(v, Variable) else v
+                )
+
+        for kwarg_tensor in normalized_kwargs_tensors:
+            if id(kwarg_tensor) in tape._watched or id(kwarg_tensor) in tape._nodes:
+                should_record = True
+                break
+
+        if should_record:
+            tape._is_used = True
+            temp_parents = []
+            for p_tensor in normalized_inputs:
+                is_node = id(p_tensor) in tape._nodes
+                if is_node:
+                    temp_parents.append(tape._nodes[id(p_tensor)])
+            parents = temp_parents
+
             node = OpNode(op_name, normalized_inputs, kwargs, result, parents)
             tape._nodes[id(result)] = node
+            tape._watched.add(id(result))
 
     def _clear_state(self):
         """Resets tape state if not persistent."""
@@ -91,6 +112,30 @@ class GradientTapeCore:
                 if inp_id in self._watched or inp_id in self._nodes:
                     self._accumulate_gradient(inp, input_grads[i])
 
+    @staticmethod
+    def _unbroadcast(grad: Tensor, target_shape: tuple) -> Tensor:
+        """
+        Reduce the broadcasted gradient to match the shape of the target tensor.
+        Handles complex broadcasting across all axes robustly.
+        """
+        g = grad
+        g_shape = g.shape
+        t_shape = target_shape
+
+        # Prepend 1s to target shape if needed (to match rank)
+        if len(g_shape) > len(t_shape):
+            t_shape = (1,) * (len(g_shape) - len(t_shape)) + t_shape
+
+        for axis, (g_dim, t_dim) in enumerate(zip(g_shape, t_shape)):
+            if t_dim == 1 and g_dim > 1:
+                g = g.sum(axis=axis, keepdims=True)
+
+        # Finally reshape to exact target shape if needed
+        if g.shape != target_shape:
+            g = g.reshape(target_shape)
+
+        return g
+
     def _compute_vjp(
         self, node: OpNode, upstream_grad: Gradient
     ) -> list[Gradient | None]:
@@ -105,9 +150,10 @@ class GradientTapeCore:
         return grad_func(upstream_grad, node.result, *node.inputs, **node.kwargs)
 
     def _accumulate_gradient(self, tensor: Tensor, grad: Gradient | None):
-        """Adds a new gradient to a tensor's accumulator."""
+        """Adds a new gradient to a tensor's accumulator, with unbroadcasting."""
         if grad is None:
             return
+
         tensor_id = id(tensor)
         if tensor_id not in self._grads:
             init_dtype = self.forced_dtype or tensor.dtype
@@ -115,11 +161,16 @@ class GradientTapeCore:
             self._grads[tensor_id] = Gradient(h=init_zero, ah=init_zero)
         current = self._grads[tensor_id]
 
+        # Ensure h and ah are Tensor instances
         h_to_add = grad.h if isinstance(grad.h, Tensor) else Tensor(grad.h)
         ah_to_add = grad.ah if isinstance(grad.ah, Tensor) else Tensor(grad.ah)
 
-        new_h = current.h + h_to_add
-        new_ah = current.ah + ah_to_add
+        # Unbroadcast before adding
+        h_data = self._unbroadcast(h_to_add.data, tensor.shape)
+        ah_data = self._unbroadcast(ah_to_add.data, tensor.shape)
+
+        new_h = current.h + h_data
+        new_ah = current.ah + ah_data
 
         if np.issubdtype(tensor.dtype, np.floating):
             new_h = np.real_if_close(new_h)

@@ -1,6 +1,6 @@
 import numpy as np
 
-from network.tape import GradientTape
+from network.gradient_tape import GradientTape
 from network.types import Variable
 
 x = Variable([1.0, 2.0, 3.0], dtype=np.float64)

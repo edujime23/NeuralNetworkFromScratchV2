@@ -1,21 +1,23 @@
-from . import functions
-from . import callbacks
-from . import initializers
-from . import layers
-from . import losses
-from . import metrics
-from . import optimizers
-from . import models
-from . import tape
+from . import (
+    callbacks,
+    functions,
+    gradient_tape,
+    initializers,
+    layers,
+    losses,
+    metrics,
+    models,
+    optimizers,
+)
 
 __all__ = [
-    'functions',
-    'callbacks',
-    'initializers',
-    'layers',
-    'losses',
-    'metrics',
-    'optimizers',
-    'models',
-    'tape',
+    "functions",
+    "callbacks",
+    "initializers",
+    "layers",
+    "losses",
+    "metrics",
+    "optimizers",
+    "models",
+    "gradient_tape",
 ]

@@ -3,8 +3,8 @@ from __future__ import annotations
 from functools import wraps
 from typing import Protocol, runtime_checkable
 
-from ....types.tensor import Tensor
-from ..types import Gradient
+from network.gradient_tape.types import Gradient
+from network.types.tensor import Tensor
 
 
 @runtime_checkable

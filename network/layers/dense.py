@@ -2,8 +2,9 @@ from collections.abc import Callable
 
 import numpy as np
 
-from ..types.tensor import Tensor
-from ..types.variable import Variable
+from network.types.tensor import Tensor
+from network.types.variable import Variable
+
 from .base import Layer
 
 
@@ -49,13 +50,21 @@ class Dense(Layer):
         self._built = True
 
     def call(self, inputs: Tensor, training: bool = False, *args, **kwargs) -> Tensor:
-        output: Tensor = np.dot(inputs, self.kernel)  # type: ignore
+        if not self.built:
+            self.build(inputs.shape[-1])
+
+        # The matmul operation
+        output: Tensor = inputs @ self.kernel
+
         if self.use_bias and self.bias is not None:
-            # Explicitly reshape bias to (1, units) so broadcasting works cleanly for autodiff
-            bias_reshaped = self.bias.reshape((1, -1))  # type: ignore
-            output = output + bias_reshaped  # type: ignore
+            bias_reshaped = self.bias.reshape((1, -1))
+
+            # The addition operation
+            output = output + bias_reshaped
+
         if self.activation:
             output = self.activation(output)
+
         return output
 
     def compute_output_shape(self, input_shape: tuple[int, ...]) -> tuple[int, ...]:

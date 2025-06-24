@@ -3,8 +3,9 @@ from itertools import product
 import numpy as np
 from numba import njit, prange
 
-from ..types.tensor import Tensor
-from ..types.variable import Variable
+from network.types.tensor import Tensor
+from network.types.variable import Variable
+
 from .base import Optimizer
 
 

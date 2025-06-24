@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from ...types.tensor import Tensor
+from network.types.tensor import Tensor
 
 
 # Internal-facing types. Users defining gradients won't need these.

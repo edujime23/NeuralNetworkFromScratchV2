@@ -1,7 +1,8 @@
 import numpy as np
 
-from ..layers.base import Layer
-from ..types.tensor import Tensor
+from network.layers.base import Layer
+from network.types.tensor import Tensor
+
 from .base import Model
 
 

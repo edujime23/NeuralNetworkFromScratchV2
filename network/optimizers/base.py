@@ -5,12 +5,12 @@ from typing import Any, Self
 
 import numpy as np
 
-from ..plugins.base.plugin import PluginContext
-from ..plugins.optimizer.base import OptimizerPluginMixin
-from ..plugins.optimizer.hooks import OptimizerHookPoints
-from ..tape.gradient.api import GradientTape
-from ..types.tensor import Tensor
-from ..types.variable import Variable
+from network.gradient_tape.api import GradientTape
+from network.plugins.base.plugin import PluginContext
+from network.plugins.optimizer.base import OptimizerPluginMixin
+from network.plugins.optimizer.hooks import OptimizerHookPoints
+from network.types.tensor import Tensor
+from network.types.variable import Variable
 
 # Type aliases
 GradVarPair = tuple[Tensor, Variable]
@@ -286,9 +286,8 @@ class Optimizer(ABC, OptimizerPluginMixin):
             return  # Slot already exists
 
         try:
-            zero_arr = np.zeros_like(var.value, dtype=dtype)
             slot_var = Variable(
-                value=zero_arr,
+                value=np.zeros_like(var.value, dtype=dtype),
                 dtype=dtype or var.dtype,
                 trainable=False,
                 name=f"{var.name}/{slot_name}",

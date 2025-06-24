@@ -1,4 +1,5 @@
 import contextlib
+from opcode import hasarg
 import os
 import sys
 import warnings
@@ -13,22 +14,6 @@ _ORIGINAL_SHOWWARNING = warnings.showwarning
 
 
 class Tensor:
-    """
-    A "tf.Tensor-like" wrapper around a read-only NumPy ndarray. Externally, it provides:
-      - attributes:   .shape, .dtype, .ndim, .size, .name, .device, .T, .graph (None)
-      - conversion:   .numpy(), .eval()
-      - indexing:    t[i], t[:, 2], etc.
-      - Python scalar:  t.item()
-      - Truth-value:   bool(t) only if t.size == 1
-      - Arithmetic & ufuncs:  x + y, x * 3, x**2, np.sqrt(x), np.mean(x), etc.
-      - Reductions & reshaping:  t.sum(axis=...), t.mean(...), t.reshape(...), etc.
-      - Casting:  t.astype(np.float32)
-      - Additional "tf-like" methods:  clip_by_value, clip_by_norm, get_shape, rank, eval
-      - If you call any NumPy ufunc or function on a Tensor, it returns a new Tensor
-        and (in a real TF scenario) would call GradientTape._record_operation(...) so that
-        autodiff "sees" every primitive. Here, we simulate the recording hooks.
-    """
-
     __slots__ = ("__data", "_name", "_dtype", "_shape")
 
     def __init__(
@@ -236,31 +221,42 @@ class Tensor:
 
         return self.__repr__()
 
+    def __array__(self, dtype: np.dtype = None):
+        return self.__data.astype(dtype)
+
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-        # Build a parallel tuple of just the Tensor‐objects:
-        tensor_inputs = tuple(
-            inp if isinstance(inp, Tensor) else Tensor(inp)
-            for inp in inputs
-        )
+        tensor_inputs = []
+        for inp in inputs:
+            if isinstance(inp, Tensor):
+                tensor_inputs.append(inp)
+            elif hasattr(inp, 'value'):
+                tensor_inputs.append(inp.value)
+            else:
+                tensor_inputs.append(Tensor(inp))
+
+        tensor_kwargs = {}
+        for k, v in kwargs.items():
+            if isinstance(v, Tensor):
+                tensor_kwargs[k] = v
+            elif hasattr(v, 'value'):
+                tensor_kwargs[k] = v.value
+            else:
+                tensor_kwargs[k] = Tensor(v)
 
         # Extract raw NumPy arrays for the actual ufunc call:
         np_inputs = tuple(
-            inp.data if isinstance(inp, Tensor) else inp
-            for inp in inputs
+            inp.data
+            for inp in tensor_inputs
         )
         np_kwargs = {
-            k: (v.data if isinstance(v, Tensor) else v)
-            for k, v in kwargs.items()
+            k: v.data
+            for k, v in tensor_kwargs.items()
         }
 
-        with self._warning_context():
-            result_array = getattr(ufunc, method)(*np_inputs, **np_kwargs)
+        # print(inputs, ufunc.__name__)
 
-        # Wrap the NumPy result into a fresh Tensor:
-        if isinstance(result_array, np.ndarray):
-            out = Tensor(result_array, dtype=result_array.dtype, name=None)
-        else:
-            out = Tensor(np.asarray(result_array), name=None)
+
+        out = Tensor(self.__data.__array_ufunc__(ufunc, method, *np_inputs, **np_kwargs))
 
         if tapes:
             tapes[-1]._record_operation(
@@ -273,27 +269,39 @@ class Tensor:
         return out
 
     def __array_function__(self, func, types, inputs, kwargs):
-        # Normalize the inputs into Tensors:
-        tensor_inputs = tuple(
-            inp if isinstance(inp, Tensor) else Tensor(inp)
-            for inp in inputs
-        )
+        tensor_inputs = []
+        for inp in inputs:
+            if isinstance(inp, Tensor):
+                tensor_inputs.append(inp)
+            elif hasattr(inp, 'value'):
+                tensor_inputs.append(inp.value)
+            elif isinstance(inp, np.ndarray):
+                tensor_inputs.append(Tensor(inp))
+            else:
+                tensor_inputs.append(inp)
+
+        tensor_kwargs = {}
+        for k, v in kwargs.items():
+            if isinstance(v, Tensor):
+                tensor_kwargs[k] = v
+            elif hasattr(v, 'value'):
+                tensor_kwargs[k] = v.value
+            elif isinstance(v, np.ndarray):
+                tensor_kwargs[k] = Tensor(v)
+            else:
+                tensor_kwargs[k] = v
+
+        # Extract raw NumPy arrays for the actual ufunc call:
         np_inputs = tuple(
-            inp.data if isinstance(inp, Tensor) else inp
-            for inp in inputs
+            inp.data if hasattr(inp, 'data') else inp
+            for inp in tensor_inputs
         )
         np_kwargs = {
-            k: (v.data if isinstance(v, Tensor) else v)
-            for k, v in kwargs.items()
+            k: v.data if hasattr(v, 'data') else v
+            for k, v in tensor_kwargs.items()
         }
 
-        with self._warning_context():
-            result_array = func(*np_inputs, **np_kwargs)
-
-        if isinstance(result_array, np.ndarray):
-            out = Tensor(result_array, dtype=result_array.dtype, name=None)
-        else:
-            out = Tensor(np.asarray(result_array), name=None)
+        out = Tensor(func(*np_inputs, **np_kwargs))
 
         if tapes:
             tapes[-1]._record_operation(
@@ -302,6 +310,7 @@ class Tensor:
                 kwargs,
                 out,
             )
+
         return out
 
     # Arithmetic operators returning Tensor
@@ -385,7 +394,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.__getitem__, "__call__", (self,), {}, out
+                    "__getitem__", (self,), {}, out
                 )
         return out
 
@@ -402,7 +411,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.reshape, "__call__", (self,), {"newshape": shape}, out
+                    "reshape", (self,), {"newshape": shape}, out
                 )
         return out
 
@@ -413,8 +422,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.transpose,
-                    "__call__",
+                    "transpose",
                     (self,),
                     {"axes": axes or None},
                     out,
@@ -431,7 +439,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.flatten, "__call__", (self,), {}, out
+                    "flatten", (self,), {}, out
                 )
         return out
 
@@ -442,7 +450,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.squeeze, "__call__", (self,), {}, out
+                    "squeeze", (self,), {}, out
                     )
         return out
 
@@ -456,8 +464,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.sum,
-                    "__call__",
+                    "sum",
                     (self,),
                     {"axis": axis, "keepdims": keepdims},
                     out,
@@ -473,8 +480,7 @@ class Tensor:
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    np.ndarray.mean,
-                    "__call__",
+                    "mean",
                     (self,),
                     {"axis": axis, "keepdims": keepdims},
                     out,

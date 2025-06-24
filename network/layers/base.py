@@ -2,8 +2,8 @@ from collections.abc import Callable
 
 import numpy as np
 
-from ..types.tensor import Tensor
-from ..types.variable import Variable
+from network.types.tensor import Tensor
+from network.types.variable import Variable
 
 
 class Layer:
@@ -63,23 +63,32 @@ class Layer:
     def __call__(
         self, inputs: Tensor, training: bool = False, mask: Tensor | None = None
     ) -> Tensor:
-        # 1) Cast inputs to layer dtype
-        inputs = inputs.astype(self.dtype)
+        if isinstance(inputs, Variable):
+            inputs_tensors = inputs.value
+        elif isinstance(inputs, Tensor):
+            inputs_tensors = inputs
+        else:
+            raise TypeError(
+                f"Layer '{self.name}' expects a Tensor or Variable as input, "
+                f"but got {type(inputs).__name__}."
+            )
+
+        inputs_tensors = inputs.astype(self.dtype)
 
         # 2) Check input_spec (e.g. expected ndim, min/max rank, shape constraints)
         if self.input_spec is not None:
             if "ndim" in self.input_spec:
                 expected_ndim = self.input_spec["ndim"]
-                if inputs.ndim != expected_ndim:
+                if inputs_tensors.ndim != expected_ndim:
                     raise ValueError(
                         f"Layer '{self.name}' expects input ndim={expected_ndim}, "
-                        f"but got ndim={inputs.ndim}."
+                        f"but got ndim={inputs_tensors.ndim}."
                     )
             if "shape" in self.input_spec:
                 expected_shape = self.input_spec["shape"]
                 # expected_shape can contain None for unknown dims
                 for idx, (dim_expected, dim_actual) in enumerate(
-                    zip(expected_shape, inputs.shape)
+                    zip(expected_shape, inputs_tensors.shape)
                 ):
                     if dim_expected is not None and dim_expected != dim_actual:
                         raise ValueError(
@@ -89,9 +98,9 @@ class Layer:
 
         # 3) Lazy build on first call
         if not self._built:
-            self.build(inputs.shape)
-            self.input_shape = inputs.shape
-            self.output_shape = self.compute_output_shape(inputs.shape)
+            self.build(inputs_tensors.shape)
+            self.input_shape = inputs_tensors.shape
+            self.output_shape = self.compute_output_shape(inputs_tensors.shape)
 
         return self.call(inputs, training=training, mask=mask)
 

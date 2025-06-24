@@ -1,6 +1,6 @@
 import numpy as np
 
-from network.tape import GradientTape
+from network.gradient_tape import GradientTape
 from network.types import Tensor, Variable
 
 x = Variable([1.0, 2.0, 3.0], dtype=np.float64)
@@ -9,7 +9,7 @@ z = Tensor([1 + 1j, 2 + 2j, 3 + 3j], dtype=np.complex128)
 
 
 def func(u):
-    return np.abs(u) ** 2
+    return np.mean(np.abs(u**2))
 
 
 with GradientTape() as tape:

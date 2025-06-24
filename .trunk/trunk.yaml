@@ -12,25 +12,21 @@ plugins:
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
 runtimes:
   enabled:
+    - go@1.21.0
     - node@22.16.0
     - python@3.10.8
 # This is the section where you manage your linters. (https://docs.trunk.io/check/configuration)
 lint:
   enabled:
-    - yamllint@1.37.1
-    - taplo@0.9.3
-    - bandit@1.8.5
     - black@25.1.0
-    - checkov@3.2.443
     - git-diff-check
     - isort@6.0.1
-    - prettier@3.5.3
     - ruff@0.12.0
-    - trufflehog@3.89.2
-actions:
   disabled:
-    - trunk-announce
-    - trunk-check-pre-push
-    - trunk-fmt-pre-commit
-  enabled:
-    - trunk-upgrade-available
+    - prettier@3.6.0
+    - bandit@1.8.5
+    - checkov@3.2.445
+    - shellcheck@0.10.0
+    - shfmt@3.6.0
+    - trufflehog@3.89.2
+    - yamllint@1.37.1

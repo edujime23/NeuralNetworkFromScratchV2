@@ -1,8 +1,8 @@
 import numpy as np
 
-from ....types.tensor import Tensor
-from ..core.registry import registry
-from ..types import Gradient
+from network.gradient_tape.core.registry import registry
+from network.gradient_tape.types import Gradient
+from network.types.tensor import Tensor
 
 
 @registry.register("sinh")
@@ -21,8 +21,8 @@ def _cosh_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
 
 @registry.register("tanh")
 def _tanh_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    grad_a_h = upstream.h * (1 / np.cosh(a)**2)
-    grad_a_ah = upstream.ah * np.conj(1 / np.cosh(a)**2)
+    grad_a_h = upstream.h * (1 / np.cosh(a) ** 2)
+    grad_a_ah = upstream.ah * np.conj(1 / np.cosh(a) ** 2)
     return [Gradient(h=grad_a_h, ah=grad_a_ah)]
 
 

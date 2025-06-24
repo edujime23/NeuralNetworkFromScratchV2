@@ -1,8 +1,8 @@
 import numpy as np
 
-from ....types.tensor import Tensor
-from ..core.registry import registry
-from ..types import Gradient
+from network.gradient_tape.core.registry import registry
+from network.gradient_tape.types import Gradient
+from network.types.tensor import Tensor
 
 
 @registry.register("sin")
@@ -21,8 +21,8 @@ def _cos_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
 
 @registry.register("tan")
 def _tan_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    grad_a_h = upstream.h * (1 / np.cos(a)**2)
-    grad_a_ah = upstream.ah * np.conj(1 / np.cos(a)**2)
+    grad_a_h = upstream.h * (1 / np.cos(a) ** 2)
+    grad_a_ah = upstream.ah * np.conj(1 / np.cos(a) ** 2)
     return [Gradient(h=grad_a_h, ah=grad_a_ah)]
 
 
@@ -48,7 +48,9 @@ def _arctan_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient
 
 
 @registry.register("arctan2")
-def _arctan2_grad(upstream: Gradient, result: Tensor, y: Tensor, x: Tensor) -> list[Gradient]:
+def _arctan2_grad(
+    upstream: Gradient, result: Tensor, y: Tensor, x: Tensor
+) -> list[Gradient]:
     # Hint: arctan2 is a real-valued function, NumPy's implementation expects real inputs.
     # Gradients propagate through real parts of inputs if Tensor abstraction handles this.
     denom = x**2 + y**2
@@ -66,7 +68,9 @@ def _arctan2_grad(upstream: Gradient, result: Tensor, y: Tensor, x: Tensor) -> l
 
 
 @registry.register("hypot")
-def _hypot_grad(upstream: Gradient, result: Tensor, x1: Tensor, x2: Tensor) -> list[Gradient]:
+def _hypot_grad(
+    upstream: Gradient, result: Tensor, x1: Tensor, x2: Tensor
+) -> list[Gradient]:
     # Hint: hypot is a real-valued function, NumPy's implementation expects real inputs.
     grad_x1_h = upstream.h * (x1 / result)
     grad_x1_ah = upstream.ah * (x1 / result)
@@ -83,14 +87,10 @@ def _hypot_grad(upstream: Gradient, result: Tensor, x1: Tensor, x2: Tensor) -> l
 @registry.register("degrees")
 def _degrees_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
     scale_factor = 180 / np.pi
-    return [
-        Gradient(h=upstream.h * scale_factor, ah=upstream.ah * scale_factor)
-    ]
+    return [Gradient(h=upstream.h * scale_factor, ah=upstream.ah * scale_factor)]
 
 
 @registry.register("radians")
 def _radians_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
     scale_factor = np.pi / 180
-    return [
-        Gradient(h=upstream.h * scale_factor, ah=upstream.ah * scale_factor)
-    ]
+    return [Gradient(h=upstream.h * scale_factor, ah=upstream.ah * scale_factor)]

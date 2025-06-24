@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..base.plugin import PluginContext, PluginHookPoint, PluginHostMixin
+from network.plugins.base.plugin import PluginContext, PluginHookPoint, PluginHostMixin
 
 
 class OptimizerPluginMixin(PluginHostMixin[PluginContext]):

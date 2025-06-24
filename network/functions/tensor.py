@@ -2,7 +2,7 @@ from typing import Literal
 
 import numpy as np
 
-from ..types.tensor import Tensor
+from network.types.tensor import Tensor
 
 
 def zeros(

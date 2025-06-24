@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from ..types.tensor import Tensor
+from network.types.tensor import Tensor
 
 
 class Initializer(ABC):

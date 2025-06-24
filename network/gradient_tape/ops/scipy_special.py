@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.special import digamma
 
-from ....types.tensor import Tensor
-from ..core.registry import registry
-from ..types import Gradient
+from network.gradient_tape.core.registry import registry
+from network.gradient_tape.types import Gradient
+from network.types.tensor import Tensor
 
 
 @registry.register("gamma")

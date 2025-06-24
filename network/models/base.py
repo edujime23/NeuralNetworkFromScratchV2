@@ -2,13 +2,13 @@ from collections.abc import Callable
 
 import numpy as np
 
-from ..callbacks.base import Callback
-from ..layers.base import Layer
-from ..metrics.base import Metric
-from ..optimizers.base import Optimizer
-from ..tape.gradient.api import GradientTape
-from ..types.tensor import Tensor
-from ..types.variable import Variable
+from network.callbacks.base import Callback
+from network.gradient_tape.api import GradientTape
+from network.layers.base import Layer
+from network.metrics.base import Metric
+from network.optimizers.base import Optimizer
+from network.types.tensor import Tensor
+from network.types.variable import Variable
 
 
 class Model:

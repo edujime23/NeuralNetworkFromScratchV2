@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from ..base.plugin import PluginHookPoint
+from network.plugins.base.plugin import PluginHookPoint
 
 
 @dataclass(frozen=True)

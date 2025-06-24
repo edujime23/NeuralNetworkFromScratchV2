@@ -1,8 +1,8 @@
 import numpy as np
 
-from ....types.tensor import Tensor
-from ..core.registry import registry
-from ..types import Gradient
+from network.gradient_tape.core.registry import registry
+from network.gradient_tape.types import Gradient
+from network.types.tensor import Tensor
 
 
 @registry.register("fabs")
@@ -41,13 +41,6 @@ def _cbrt_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
     grad_a_ah = np.where(
         np.conj(a) != 0, upstream.ah * (1 / 3) * (np.conj(a) ** (-2 / 3)), 0.0
     )
-    return [Gradient(h=grad_a_h, ah=grad_a_ah)]
-
-
-@registry.register("square")
-def _square_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    grad_a_h = upstream.h * (2 * a)
-    grad_a_ah = upstream.ah * (2 * np.conj(a))
     return [Gradient(h=grad_a_h, ah=grad_a_ah)]
 
 

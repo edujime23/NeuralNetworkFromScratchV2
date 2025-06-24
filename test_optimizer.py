@@ -1,10 +1,10 @@
 import numpy as np
 
+from network.gradient_tape import GradientTape
 from network.optimizers import Adam
 from network.plugins.optimizer import (
     AdaptiveGradientClippingPlugin,
 )
-from network.tape import GradientTape
 from network.types import Variable
 
 np.random.seed(69)
@@ -26,7 +26,7 @@ print(opt.summary())
 
 
 def func(x):
-    return x  # np.exp(x)
+    return np.exp(x)
 
 
 def losss(x):

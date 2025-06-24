@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from network.queues.tapes import tapes
+from network.types.tensor import Tensor
+from network.types.variable import Variable
 
-from ...queues.tapes import tapes
-from ...types.tensor import Tensor
-from ...types.variable import Variable
 from .core.tape import GradientTapeCore
 from .types import Gradient
 
@@ -19,11 +18,13 @@ class GradientTape(GradientTapeCore):
     def __exit__(self, *args):
         tapes.pop()
 
-    def watch(self, *tensors: Tensor | Variable):
+    def watch(self, *tensors: list[Tensor | Variable]):
         """Explicitly tracks gradients for the given Tensors or Variables."""
+        if isinstance(tensors, (Tensor, Variable)):
+            tensors = [tensors]
         for t in tensors:
             tensor = t.value if isinstance(t, Variable) else t
-            super().watch(tensor)
+            super()._watch(tensor)
 
     def gradient(
         self,
@@ -37,7 +38,7 @@ class GradientTape(GradientTapeCore):
         """
         self._is_used = True
 
-        if not isinstance(sources, Iterable):
+        if isinstance(sources, (Tensor, Variable)):
             sources = [sources]
 
         self._backpropagate(target, output_gradients)
