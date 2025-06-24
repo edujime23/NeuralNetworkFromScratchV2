@@ -271,26 +271,28 @@ class Tensor:
     def __array_function__(self, func, types, inputs, kwargs):
         tensor_inputs = []
         for inp in inputs:
-            if isinstance(inp, Tensor):
+            if (
+                isinstance(inp, Tensor)
+                or not hasattr(inp, 'value')
+                and not isinstance(inp, np.ndarray)
+            ):
                 tensor_inputs.append(inp)
             elif hasattr(inp, 'value'):
                 tensor_inputs.append(inp.value)
-            elif isinstance(inp, np.ndarray):
-                tensor_inputs.append(Tensor(inp))
             else:
-                tensor_inputs.append(inp)
-
+                tensor_inputs.append(Tensor(inp))
         tensor_kwargs = {}
         for k, v in kwargs.items():
-            if isinstance(v, Tensor):
+            if (
+                isinstance(v, Tensor)
+                or not hasattr(v, 'value')
+                and not isinstance(v, np.ndarray)
+            ):
                 tensor_kwargs[k] = v
             elif hasattr(v, 'value'):
                 tensor_kwargs[k] = v.value
-            elif isinstance(v, np.ndarray):
-                tensor_kwargs[k] = Tensor(v)
             else:
-                tensor_kwargs[k] = v
-
+                tensor_kwargs[k] = Tensor(v)
         # Extract raw NumPy arrays for the actual ufunc call:
         np_inputs = tuple(
             inp.data if hasattr(inp, 'data') else inp
@@ -460,30 +462,21 @@ class Tensor:
     ) -> Self:
         with self._warning_context():
             arr = self.data.sum(axis=axis, keepdims=keepdims)
-        out = Tensor(arr, dtype=arr.dtype, name=None)
-        with contextlib.suppress(ImportError):
-            if tapes:
-                tapes[-1]._record_operation(
-                    "sum",
-                    (self,),
-                    {"axis": axis, "keepdims": keepdims},
-                    out,
-                )
-        return out
+        return self._record(arr, "sum", axis, keepdims)
 
     def mean(
         self, axis: int | tuple[int, ...] | None = None, keepdims: bool = False
     ) -> Self:
         with self._warning_context():
             arr = self.data.mean(axis=axis, keepdims=keepdims)
+        return self._record(arr, "mean", axis, keepdims)
+
+    def _record(self, arr, arg1, axis, keepdims):
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
                 tapes[-1]._record_operation(
-                    "mean",
-                    (self,),
-                    {"axis": axis, "keepdims": keepdims},
-                    out,
+                    arg1, (self,), {"axis": axis, "keepdims": keepdims}, out
                 )
         return out
 
