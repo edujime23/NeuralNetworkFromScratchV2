@@ -1,4 +1,6 @@
 .trunk/
+.vscode/
+.dll
 
 # Byte-compiled / optimized / DLL files
 **/__pycache__/
