@@ -6,7 +6,6 @@ import numpy as np
 from ..initializers import Initializer, Zeros
 from .tensor import Tensor
 
-
 class Variable:
     __initializer_map = {
         cls.__name__.lower(): cls for cls in Initializer.__subclasses__()

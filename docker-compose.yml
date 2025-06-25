@@ -1,0 +1,13 @@
+# docker-compose.yml
+name: edujime23/neural_network_from_scratch_v2
+
+services:
+  shell:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+    entrypoint: /bin/bash
