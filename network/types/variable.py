@@ -6,6 +6,7 @@ import numpy as np
 from ..initializers import Initializer, Zeros
 from .tensor import Tensor
 
+
 class Variable:
     __initializer_map = {
         cls.__name__.lower(): cls for cls in Initializer.__subclasses__()
@@ -131,138 +132,134 @@ class Variable:
         return self.__tensor.__repr__().replace("Tensor", "Variable")
 
     # --- Arithmetic Operators ---
-    def __add__(self, other) -> Tensor:
+    def __add__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return (
-            self.__tensor + other_val
-        )  # Correct: Delegates to Tensor's __add__ (or ufunc)
+        return self.__tensor + other_val
 
-    def __radd__(self, other) -> Tensor:
+    def __radd__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
-        return (
-            other_val + self.__tensor
-        )  # Correct: Delegates to Tensor's __radd__ (or ufunc)
+        return other_val + self.__tensor
 
-    def __sub__(self, other) -> Tensor:
+    def __sub__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor - other_val
 
-    def __rsub__(self, other) -> Tensor:
+    def __rsub__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val - self.__tensor
 
-    def __mul__(self, other) -> Tensor:
+    def __mul__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor * other_val
 
-    def __rmul__(self, other) -> Tensor:
+    def __rmul__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val * self.__tensor
 
-    def __truediv__(self, other) -> Tensor:
+    def __truediv__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor / other_val
 
-    def __rtruediv__(self, other) -> Tensor:
+    def __rtruediv__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val / self.__tensor
 
-    def __floordiv__(self, other) -> Tensor:
+    def __floordiv__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor // other_val
 
-    def __rfloordiv__(self, other) -> Tensor:
+    def __rfloordiv__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val // self.__tensor
 
-    def __mod__(self, other) -> Tensor:
+    def __mod__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor % other_val
 
-    def __rmod__(self, other) -> Tensor:
+    def __rmod__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val % self.__tensor
 
-    def __pow__(self, other) -> Tensor:
+    def __pow__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor**other_val
 
-    def __rpow__(self, other) -> Tensor:
+    def __rpow__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val**self.__tensor
 
     # --- Bitwise Operators --- (similarly delegate)
-    def __and__(self, other) -> Tensor:
+    def __and__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor & other_val
 
-    def __rand__(self, other) -> Tensor:
+    def __rand__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val & self.__tensor
 
-    def __or__(self, other) -> Tensor:
+    def __or__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor | other_val
 
-    def __ror__(self, other) -> Tensor:
+    def __ror__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val | self.__tensor
 
-    def __xor__(self, other) -> Tensor:
+    def __xor__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor ^ other_val
 
-    def __rxor__(self, other) -> Tensor:
+    def __rxor__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val ^ self.__tensor
 
-    def __lshift__(self, other) -> Tensor:
+    def __lshift__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor << other_val
 
-    def __rlshift__(self, other) -> Tensor:
+    def __rlshift__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val << self.__tensor
 
-    def __rshift__(self, other) -> Tensor:
+    def __rshift__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor >> other_val
 
-    def __rrshift__(self, other) -> Tensor:
+    def __rrshift__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val >> self.__tensor
 
     # --- Matmul Operator ---
-    def __matmul__(self, other) -> Tensor:
+    def __matmul__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor @ other_val
 
-    def __rmatmul__(self, other) -> Tensor:
+    def __rmatmul__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return other_val @ self.__tensor
 
     # Comparison operators (similarly delegate)
-    def __lt__(self, other) -> Tensor:
+    def __lt__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor < other_val
 
-    def __le__(self, other) -> Tensor:
+    def __le__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor <= other_val
 
-    def __eq__(self, other) -> Tensor:
+    def __eq__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor == other_val
 
-    def __ne__(self, other) -> Tensor:
+    def __ne__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor != other_val
 
-    def __gt__(self, other) -> Tensor:
+    def __gt__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor > other_val
 
-    def __ge__(self, other) -> Tensor:
+    def __ge__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         return self.__tensor >= other_val
 
@@ -277,62 +274,62 @@ class Variable:
         return abs(self.__tensor)
 
     # --- In-place Operators ---
-    def __iadd__(self, other) -> Tensor:
+    def __iadd__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor + other_val)
         return self
 
-    def __isub__(self, other) -> Tensor:
+    def __isub__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor - other_val)
         return self
 
-    def __imul__(self, other) -> Tensor:
+    def __imul__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor * other_val)
         return self
 
-    def __itruediv__(self, other) -> Tensor:
+    def __itruediv__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor / other_val)
         return self
 
-    def __ifloordiv__(self, other) -> Tensor:
+    def __ifloordiv__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor // other_val)
         return self
 
-    def __imod__(self, other) -> Tensor:
+    def __imod__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor % other_val)
         return self
 
-    def __ipow__(self, other) -> Tensor:
+    def __ipow__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor**other_val)
         return self
 
-    def __iand__(self, other) -> Tensor:
+    def __iand__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor & other_val)
         return self
 
-    def __ior__(self, other) -> Tensor:
+    def __ior__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor | other_val)
         return self
 
-    def __ixor__(self, other) -> Tensor:
+    def __ixor__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor ^ other_val)
         return self
 
-    def __ilshift__(self, other) -> Tensor:
+    def __ilshift__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor << other_val)
         return self
 
-    def __irshift__(self, other) -> Tensor:
+    def __irshift__(self, other: Tensor) -> Tensor:
         other_val = other.__tensor if isinstance(other, type(self)) else other
         self.assign(self.__tensor >> other_val)
         return self

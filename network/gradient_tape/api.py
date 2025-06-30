@@ -18,10 +18,8 @@ class GradientTape(GradientTapeCore):
     def __exit__(self, *args):
         tapes.pop()
 
-    def watch(self, *tensors: list[Tensor | Variable]):
+    def watch(self, *tensors: Tensor | Variable):
         """Explicitly tracks gradients for the given Tensors or Variables."""
-        if isinstance(tensors, (Tensor, Variable)):
-            tensors = [tensors]
         for t in tensors:
             tensor = t.value if isinstance(t, Variable) else t
             super()._watch(tensor)

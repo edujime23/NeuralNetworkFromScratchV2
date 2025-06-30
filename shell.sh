@@ -1,1 +1,0 @@
-docker compose exec -it shell bash

@@ -48,7 +48,7 @@ class GradientTapeCore:
                 break
 
         normalized_kwargs_tensors = []
-        for k, v in kwargs.items():
+        for _, v in kwargs.items():
             if isinstance(v, (Tensor, Variable)):
                 normalized_kwargs_tensors.append(
                     v.value if isinstance(v, Variable) else v
@@ -113,7 +113,7 @@ class GradientTapeCore:
                     self._accumulate_gradient(inp, input_grads[i])
 
     @staticmethod
-    def _unbroadcast(grad: Tensor, target_shape: tuple) -> Tensor:
+    def _unbroadcast(grad: Tensor, target_shape: tuple[int]) -> Tensor:
         """
         Reduce the broadcasted gradient to match the shape of the target tensor.
         Handles complex broadcasting across all axes robustly.

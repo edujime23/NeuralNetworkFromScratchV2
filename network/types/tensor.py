@@ -1,9 +1,7 @@
 import contextlib
-from opcode import hasarg
 import os
 import sys
 import warnings
-from typing import Self
 
 import numpy as np
 
@@ -18,10 +16,10 @@ class Tensor:
 
     def __init__(
         self,
-        value: np.ndarray | float | int | complex | None = None,
+        value: np.typing.ArrayLike | float | int | complex | None = None,
         *,
         shape: tuple[int, ...] | None = None,
-        dtype: np.dtype | str | None = None,
+        dtype: np.typing.DTypeLike | str | None = None,
         name: str | None = None,
     ):
         if value is None:
@@ -56,7 +54,7 @@ class Tensor:
         return self._shape
 
     @property
-    def dtype(self) -> np.dtype:
+    def dtype(self) -> np.typing.DTypeLike:
         """Return the NumPy dtype."""
         return self._dtype
 
@@ -85,7 +83,7 @@ class Tensor:
         return self.__data
 
     @property
-    def T(self) -> Self:
+    def T(self) -> "Tensor":
         """Shorthand for transpose()."""
         return self.transpose()
 
@@ -108,10 +106,9 @@ class Tensor:
         return self.data.copy()
 
     def eval(self) -> np.ndarray:
-        """Alias for .numpy() (tf 2.x eager mode compatibility)."""
-        return self.numpy()
+        return self.numpy
 
-    def dot(self, b: Self, out=None) -> Self:
+    def dot(self, b: "Tensor", out=None) -> "Tensor":
         return Tensor(self.data.dot(b=b, out=out))
 
     @staticmethod
@@ -170,14 +167,6 @@ class Tensor:
         finally:
             warnings.showwarning = original
 
-    def __array__(self, dtype=None) -> np.ndarray:
-        """
-        Support np.asarray(tensor) or np.array(tensor). If dtype is given,
-        cast accordingly.
-        """
-        with self._warning_context():
-            return self.data if dtype is None else self.data.astype(dtype)
-
     def item(self) -> int | float | complex:
         """
         If this Tensor holds exactly one element, return it as a Python scalar.
@@ -221,8 +210,9 @@ class Tensor:
 
         return self.__repr__()
 
-    def __array__(self, dtype: np.dtype = None):
-        return self.__data.astype(dtype)
+    def __array__(self, dtype: np.typing.DTypeLike = None):
+        with self._warning_context():
+            return self.__data.astype(dtype)
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         tensor_inputs = []
@@ -271,25 +261,17 @@ class Tensor:
     def __array_function__(self, func, types, inputs, kwargs):
         tensor_inputs = []
         for inp in inputs:
-            if (
-                isinstance(inp, Tensor)
-                or not hasattr(inp, 'value')
-                and not isinstance(inp, np.ndarray)
-            ):
+            if isinstance(inp, Tensor):
                 tensor_inputs.append(inp)
-            elif hasattr(inp, 'value'):
+            elif hasattr(inp, 'value') and not isinstance(inp, np.ndarray):
                 tensor_inputs.append(inp.value)
             else:
                 tensor_inputs.append(Tensor(inp))
         tensor_kwargs = {}
         for k, v in kwargs.items():
-            if (
-                isinstance(v, Tensor)
-                or not hasattr(v, 'value')
-                and not isinstance(v, np.ndarray)
-            ):
+            if isinstance(v, Tensor):
                 tensor_kwargs[k] = v
-            elif hasattr(v, 'value'):
+            elif hasattr(v, 'value') and not isinstance(v, np.ndarray):
                 tensor_kwargs[k] = v.value
             else:
                 tensor_kwargs[k] = Tensor(v)
@@ -316,81 +298,81 @@ class Tensor:
         return out
 
     # Arithmetic operators returning Tensor
-    def __add__(self, other) -> Self:
+    def __add__(self, other) -> "Tensor":
         return np.add(self, other)
 
-    def __sub__(self, other) -> Self:
+    def __sub__(self, other) -> "Tensor":
         return np.subtract(self, other)
 
-    def __mul__(self, other) -> Self:
+    def __mul__(self, other) -> "Tensor":
         return np.multiply(self, other)
 
-    def __truediv__(self, other) -> Self:
+    def __truediv__(self, other) -> "Tensor":
         return np.divide(self, other)
 
-    def __floordiv__(self, other) -> Self:
+    def __floordiv__(self, other) -> "Tensor":
         return np.floor_divide(self, other)
 
-    def __mod__(self, other) -> Self:
+    def __mod__(self, other) -> "Tensor":
         return np.mod(self, other)
 
-    def __pow__(self, other) -> Self:
+    def __pow__(self, other) -> "Tensor":
         return np.power(self, other)
 
-    def __matmul__(self, other) -> Self:
+    def __matmul__(self, other) -> "Tensor":
         return np.matmul(self, other)
 
-    def __radd__(self, other) -> Self:
+    def __radd__(self, other) -> "Tensor":
         return np.add(other, self)
 
-    def __rsub__(self, other) -> Self:
+    def __rsub__(self, other) -> "Tensor":
         return np.subtract(other, self)
 
-    def __rmul__(self, other) -> Self:
+    def __rmul__(self, other) -> "Tensor":
         return np.multiply(other, self)
 
-    def __rtruediv__(self, other) -> Self:
+    def __rtruediv__(self, other) -> "Tensor":
         return np.divide(other, self)
 
-    def __rfloordiv__(self, other) -> Self:
+    def __rfloordiv__(self, other) -> "Tensor":
         return np.floor_divide(other, self)
 
-    def __rmod__(self, other) -> Self:
+    def __rmod__(self, other) -> "Tensor":
         return np.mod(other, self)
 
-    def __rpow__(self, other) -> Self:
+    def __rpow__(self, other) -> "Tensor":
         return np.power(other, self)
 
-    def __rmatmul__(self, other) -> Self:
+    def __rmatmul__(self, other) -> "Tensor":
         return np.matmul(other, self)
 
-    def __neg__(self) -> Self:
+    def __neg__(self) -> "Tensor":
         return np.negative(self)
 
-    def __pos__(self) -> Self:
+    def __pos__(self) -> "Tensor":
         return self
 
     # Comparison ops
-    def __lt__(self, other) -> Self:
+    def __lt__(self, other) -> "Tensor":
         return np.less(self, other)
 
-    def __le__(self, other) -> Self:
+    def __le__(self, other) -> "Tensor":
         return np.less_equal(self, other)
 
-    def __eq__(self, other) -> Self:
+    def __eq__(self, other) -> "Tensor":
         return np.equal(self, other)
 
-    def __ne__(self, other) -> Self:
+    def __ne__(self, other) -> "Tensor":
         return np.not_equal(self, other)
 
-    def __gt__(self, other) -> Self:
+    def __gt__(self, other) -> "Tensor":
         return np.greater(self, other)
 
-    def __ge__(self, other) -> Self:
+    def __ge__(self, other) -> "Tensor":
         return np.greater_equal(self, other)
 
     # Indexing / slicing
-    def __getitem__(self, idx) -> Self:
+    def __getitem__(self, idx) -> "Tensor":
         sliced = self.data[idx]
         out = Tensor(sliced, dtype=sliced.dtype, name=None)
         with contextlib.suppress(ImportError):
@@ -406,9 +388,9 @@ class Tensor:
         )
 
     # Shape manipulation
-    def reshape(self, *shape: int) -> Self:
+    def reshape(self, *shape: int, order: str = "C", copy: bool | None= None) -> "Tensor":
         with self._warning_context():
-            arr = self.data.reshape(*shape)
+            arr = self.data.reshape(*shape, order=order, copy=copy)
         out = Tensor(arr, dtype=arr.dtype, name=None)
         with contextlib.suppress(ImportError):
             if tapes:
@@ -417,7 +399,7 @@ class Tensor:
                 )
         return out
 
-    def transpose(self, *axes: int) -> Self:
+    def transpose(self, *axes: int) -> "Tensor":
         with self._warning_context():
             arr = self.data.transpose(*axes)
         out = Tensor(arr, dtype=arr.dtype, name=None)
@@ -431,7 +413,7 @@ class Tensor:
                 )
         return out
 
-    def flatten(self) -> Self:
+    def flatten(self) -> "Tensor":
         """
         Return a copy of the tensor collapsed into one dimension.
         """
@@ -459,14 +441,14 @@ class Tensor:
     # Reductions
     def sum(
         self, axis: int | tuple[int, ...] | None = None, keepdims: bool = False
-    ) -> Self:
+    ) -> "Tensor":
         with self._warning_context():
             arr = self.data.sum(axis=axis, keepdims=keepdims)
         return self._record(arr, "sum", axis, keepdims)
 
     def mean(
         self, axis: int | tuple[int, ...] | None = None, keepdims: bool = False
-    ) -> Self:
+    ) -> "Tensor":
         with self._warning_context():
             arr = self.data.mean(axis=axis, keepdims=keepdims)
         return self._record(arr, "mean", axis, keepdims)
@@ -480,7 +462,7 @@ class Tensor:
                 )
         return out
 
-    def astype(self, dtype: np.dtype | str) -> Self:
+    def astype(self, dtype: np.typing.DTypeLike | str) -> "Tensor":
         with self._warning_context():
             arr = self.data.astype(dtype)
         return Tensor(arr, dtype=arr.dtype, name=self.name)
@@ -498,13 +480,13 @@ class Tensor:
         ord: None | int | float | str = None,
         axis: None | int | tuple[int, ...] = None,
         keepdims: bool = False,
-    ) -> Self:
+    ) -> "Tensor":
         with self._warning_context():
             arr = np.linalg.norm(self.data, ord=ord, axis=axis, keepdims=keepdims)
         return Tensor(arr, dtype=arr.dtype, name=None)
 
     # Additional tf.Tensor-like methods
-    def clip_by_value(self, clip_value_min: float, clip_value_max: float) -> Self:
+    def clip_by_value(self, clip_value_min: float, clip_value_max: float) -> "Tensor":
         """
         Clip (limit) the values in the tensor.
         """
@@ -514,7 +496,7 @@ class Tensor:
 
     def clip_by_norm(
         self, clip_norm: float, axes: None | int | tuple[int, ...] = None
-    ) -> Self:
+    ) -> "Tensor":
         """
         Clip tensor values by the given L2-norm.
         """
