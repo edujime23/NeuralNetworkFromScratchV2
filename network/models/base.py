@@ -2,31 +2,32 @@ from collections.abc import Callable
 
 import numpy as np
 
-from network.callbacks.base import Callback
 from network.gradient_tape.api import GradientTape
 from network.layers.base import Layer
 from network.metrics.base import Metric
+from network.plugins.model.mixin import ModelPluginMixin
+from network.plugins.model.hooks import ModelHookPoints
 from network.optimizers.base import Optimizer
 from network.types.tensor import Tensor
 from network.types.variable import Variable
 
 
-class Model:
+class Model(ModelPluginMixin):
     """
     Base class for neural network models.
 
     • Lazy-build: first forward pass will build layers automatically.
     • Accepts either `Tensor` or raw NumPy array as input.
-    • Tracks layers, variables, optimizer, loss, metrics, callbacks.
+    • Tracks layers, variables, optimizer, loss, metrics.
     • Provides summary(), get_weights()/set_weights(), save_weights()/load_weights().
     """
 
     def __init__(self, name: str | None = None):
+        super().__init__()  # Initialize plugin system
         self._name: str = name or self.__class__.__name__
         self._optimizer: Optimizer | None = None
         self._loss_fn: Callable[[Tensor, Tensor], Tensor] | None = None
         self._metrics: list[Metric] = []
-        self._callbacks: list[Callback] = []
         self._layers: list[Layer] = []
         self._variables: list[Variable] = []
         self._built: bool = False
@@ -39,11 +40,11 @@ class Model:
         optimizer: str | Optimizer,
         loss: Callable[[Tensor, Tensor], Tensor],
         metrics: list[str | Metric] | None = None,
-        callbacks: list[Callback] | None = None,
     ) -> None:
-        """
-        Configure the model for training.
-        """
+        self.call_hooks(
+            ModelHookPoints.PRE_COMPILE, optimizer=optimizer, loss=loss, metrics=metrics
+        )
+
         if isinstance(optimizer, str):
             self._optimizer = Optimizer.from_string(optimizer)
         else:
@@ -56,7 +57,7 @@ class Model:
                 Metric.from_string(m) if isinstance(m, str) else m for m in metrics
             )
 
-        self._callbacks = callbacks or []
+        self.call_hooks(ModelHookPoints.POST_COMPILE)
 
     def add(self, layer: Layer) -> None:
         """Add a layer instance to the model."""
@@ -65,9 +66,8 @@ class Model:
     def _build_layers(
         self, input_shape: tuple[int, ...], dtype: np.typing.DTypeLike
     ) -> None:
-        """
-        Build all layers given an input shape, collect variables, and track shapes.
-        """
+        self.call_hooks(ModelHookPoints.PRE_BUILD, input_shape=input_shape, dtype=dtype)
+
         self._input_shape = input_shape
         self._dtype = dtype
         shape: tuple[int, ...] = input_shape
@@ -100,48 +100,41 @@ class Model:
         self.output_shape = shape
         self._built = True
 
+        self.call_hooks(
+            ModelHookPoints.POST_BUILD, input_shape=input_shape, dtype=dtype
+        )
+
     def call(
         self,
-        inputs: Tensor | np.ndarray,
+        inputs: Tensor,
         training: bool = False,
         mask: Tensor | None = None,
     ) -> Tensor:
-        """
-        Forward pass through all layers. If given a NumPy array, wrap it into Tensor.
-        If not built yet, build lazily.
-        """
-        # Wrap raw NumPy into Tensor, preserving dtype
         if isinstance(inputs, np.ndarray):
             inputs = Tensor(inputs, dtype=inputs.dtype)
 
-        # Cast to model dtype if specified
         x: Tensor = inputs.astype(self._dtype or inputs.dtype)
 
         if not self._built:
-            # Build layers lazily: input_shape excludes batch dimension
             self._build_layers(inputs.shape[1:], inputs.dtype)
+
+        self.call_hooks(ModelHookPoints.PRE_FORWARD, x=x, training=training, mask=mask)
 
         for layer in self._layers:
             x = layer(x, training=training, mask=mask)
+
+        self.call_hooks(ModelHookPoints.POST_FORWARD, x=x)
         return x
 
     def __call__(
         self,
-        inputs: Tensor | np.ndarray,
+        inputs: Tensor,
         training: bool = False,
         mask: Tensor | None = None,
     ) -> Tensor:
         return self.call(inputs, training=training, mask=mask)
 
-    def train_step(
-        self, x: Tensor | np.ndarray, y: Tensor | np.ndarray
-    ) -> dict[str, float]:
-        """
-        Perform a single training step (forward, backward, update).
-        Accepts either Tensor or NumPy array; wraps NumPy into Tensor.
-        Returns a log of loss and metric values for this batch.
-        """
-        # Wrap inputs into Tensors if needed
+    def train_step(self, x, y):
         if isinstance(x, np.ndarray):
             x = Tensor(x, dtype=x.dtype)
         if isinstance(y, np.ndarray):
@@ -150,36 +143,46 @@ class Model:
         if not self._built:
             self._build_layers(x.shape[1:], x.dtype)
 
+        self.call_hooks(ModelHookPoints.PRE_TRAIN_STEP, x=x, y=y)
+
         with GradientTape() as tape:
             tape.watch(*self.trainable_variables)
-            y_pred: Tensor = self.call(x, training=True)
-            loss_value: Tensor = self._loss_fn(y, y_pred)
+            y_pred = self.call(x, training=True)
+            loss_value = self._loss_fn(y, y_pred)
 
-            # Add any layer-registered regularization losses
-            reg_losses: list[Tensor] = []
+            reg_losses = []
             for layer in self._layers:
                 reg_losses.extend(layer.losses)
             if reg_losses:
                 total_reg = sum(reg_losses, Tensor(0.0))
-                loss_value = loss_value + total_reg
+                loss_value += total_reg
 
-        grads: list[Tensor] = tape.gradient(loss_value, self.trainable_variables)
+        grads = tape.gradient(loss_value, self.trainable_variables)
+        for i in range(len(grads)):
+            if grads[i] is None:
+                continue
+            if np.iscomplexobj(self.trainable_variables[i]):
+                grads[i] = grads[i].ah
+            elif np.isrealobj(self.trainable_variables[i]):
+                grads[i] = grads[i].total
+
         self._optimizer.apply_gradients(list(zip(grads, self.trainable_variables)))
 
-        logs: dict[str, float] = {"loss": float(loss_value.numpy.item())}
+        logs = {"loss": float(loss_value.numpy.item())}
         for metric in self._metrics:
             metric.update_state(y, y_pred)
             logs[metric.name] = float(metric.result().numpy.item())
 
+        self.call_hooks(ModelHookPoints.POST_TRAIN_STEP, logs=logs)
         return logs
 
     def fit(
         self,
-        x: Tensor | np.ndarray,
-        y: Tensor | np.ndarray,
+        x: Tensor,
+        y: Tensor,
         epochs: int = 1,
         batch_size: int = 32,
-        validation_data: tuple[Tensor | np.ndarray, Tensor | np.ndarray] | None = None,
+        validation_data: tuple[Tensor, Tensor] | None = None,
     ) -> None:
         """
         Train the model over multiple epochs with optional validation.
@@ -200,10 +203,8 @@ class Model:
 
         num_samples = x.shape[0]
 
-        for cb in self._callbacks:
-            cb.on_train_begin(logs=None)
-
         for epoch in range(epochs):
+            self.call_hooks(ModelHookPoints.PRE_EPOCH, epoch=epoch)
             # Shuffle data
             indices = np.arange(num_samples)
             np.random.shuffle(indices)
@@ -217,18 +218,27 @@ class Model:
             for metric in self._metrics:
                 metric.reset_states()
 
-            for cb in self._callbacks:
-                cb.on_epoch_begin(epoch, logs=None)
-
             epoch_loss = 0.0
             steps = 0
             for batch_start in range(0, num_samples, batch_size):
                 xb = x_shuf[batch_start : batch_start + batch_size]
                 yb = y_shuf[batch_start : batch_start + batch_size]
+
+                self.call_hooks(
+                    ModelHookPoints.PRE_BATCH,
+                    epoch=epoch,
+                    batch_idx=steps,
+                    inputs=xb,
+                    targets=yb,
+                )
                 batch_logs = self.train_step(xb, yb)
 
-                for cb in self._callbacks:
-                    cb.on_train_batch_end(batch_start, logs=batch_logs)
+                self.call_hooks(
+                    ModelHookPoints.POST_BATCH,
+                    epoch=epoch,
+                    batch_idx=steps,
+                    logs=batch_logs,
+                )
 
                 epoch_loss += batch_logs["loss"]
                 steps += 1
@@ -257,13 +267,10 @@ class Model:
                     **{f"val_{k}": v for k, v in val_metrics.items()},
                 }
 
-            print(f"Epoch {epoch+1}/{epochs} — ", logs_epoch)
+            self.call_hooks(ModelHookPoints.POST_EPOCH, epoch=epoch, logs=logs_epoch)
 
-            for cb in self._callbacks:
-                cb.on_epoch_end(epoch, logs=logs_epoch)
-
-        for cb in self._callbacks:
-            cb.on_train_end(logs=logs_epoch)
+            if (epoch + 1) % np.ceil(epoch / 100) == 0:
+                print(f"Epoch {epoch+1}/{epochs} - ", logs_epoch)
 
     def summary(self) -> None:
         """
@@ -277,7 +284,7 @@ class Model:
 
         print(f"Model: {self._name}")
         print(f"{'Layer (type)':<30s}{'Output Shape':<20s}{'# Params':>10s}")
-        print("=" * 60)
+        print("=" * 70)
         total_params = 0
         trainable_params = 0
 
@@ -291,12 +298,23 @@ class Model:
             print(f"{layer_name:<30s}{str(out_shape):<20s}{params:>10d}")
 
         non_trainable = total_params - trainable_params
-        print("=" * 60)
+        print("=" * 70)
+        print(f"{'Plugin (name)':<30s}{'State':<20s}{'Priority':>10s}")
+        for plugin_name, plugin in self._plugins.items():
+            print(f"{plugin_name:<30s}{plugin.state.name:<20s}{plugin.priority:>10d}")
+
+        print("=" * 70)
+        print(f"{'Hook (name):':<30s}{'# of Calls':>20s}")
+        print("=" * 70)
+        for hook_name, count in self._hook_call_counts.items():
+            print(hook_name, count)
+            print(f"{hook_name:<30s}{count:>20d}")
+        print("=" * 70)
         print(f"{'Total params:':<30s}{total_params:>30d}")
         print(f"{'Trainable params:':<30s}{trainable_params:>30d}")
         print(f"{'Non-trainable params:':<30s}{non_trainable:>30d}")
 
-    def gradient(self, x: Tensor | np.ndarray, y: Tensor | np.ndarray) -> list[Tensor]:
+    def gradient(self, x: Tensor, y: Tensor) -> list[Tensor]:
         """
         Compute gradients of loss w.r.t. trainable variables for inputs x, y.
         Accepts either Tensor or NumPy array.

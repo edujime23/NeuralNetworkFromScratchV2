@@ -5,6 +5,8 @@ from network.optimizers import Adam
 from network.plugins.optimizer import (
     AdaptiveGradientClippingPlugin,
 )
+from network.plugins.optimizer.look_ahead import LookaheadPlugin
+from network.plugins.model.lr import AdaptiveLRPlugin
 from network.types import Variable
 
 np.random.seed(69)
@@ -16,11 +18,9 @@ w = Variable(value=[np.pi + np.e * 1j], trainable=True, name="w", initializer="o
 opt = Adam(5e-3)
 steps = int(1e4)
 
-# opt.add_addon(NesterovMomentumAddon(momentum=0.99))
-# opt.add_addon(L1L2RegularizationAddon(1e-6, 1e-6))
-opt.add_plugin(AdaptiveGradientClippingPlugin())
-# opt.add_addon(AdaptiveNoiseAddon())
-# opt.add_addon(LookaheadAddon(k=5, alpha=0.5))
+opt.add_plugins(
+    [AdaptiveGradientClippingPlugin(), AdaptiveLRPlugin(256), LookaheadPlugin()]
+)
 
 print(opt.summary())
 

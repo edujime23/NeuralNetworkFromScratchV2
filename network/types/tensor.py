@@ -217,36 +217,40 @@ class Tensor:
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         tensor_inputs = []
         for inp in inputs:
-            if isinstance(inp, Tensor):
+            if (
+                isinstance(inp, Tensor)
+                or not hasattr(inp, 'value')
+                and not isinstance(inp, np.ndarray)
+            ):
                 tensor_inputs.append(inp)
             elif hasattr(inp, 'value'):
                 tensor_inputs.append(inp.value)
             else:
                 tensor_inputs.append(Tensor(inp))
-
         tensor_kwargs = {}
         for k, v in kwargs.items():
-            if isinstance(v, Tensor):
+            if (
+                isinstance(v, Tensor)
+                or not hasattr(v, 'value')
+                and not isinstance(v, np.ndarray)
+            ):
                 tensor_kwargs[k] = v
             elif hasattr(v, 'value'):
                 tensor_kwargs[k] = v.value
             else:
-                tensor_kwargs[k] = Tensor(v)
-
+                tensor_kwargs[k] =Tensor(v)
         # Extract raw NumPy arrays for the actual ufunc call:
         np_inputs = tuple(
-            inp.data
+            inp.data if hasattr(inp, 'data') else inp
             for inp in tensor_inputs
         )
         np_kwargs = {
-            k: v.data
+            k: v.data if hasattr(v, 'data') else v
             for k, v in tensor_kwargs.items()
         }
 
-        # print(inputs, ufunc.__name__)
-
-
-        out = Tensor(self.__data.__array_ufunc__(ufunc, method, *np_inputs, **np_kwargs))
+        with self._warning_context():
+            out = Tensor(self.__data.__array_ufunc__(ufunc, method, *np_inputs, **np_kwargs))
 
         if tapes:
             tapes[-1]._record_operation(
@@ -261,21 +265,28 @@ class Tensor:
     def __array_function__(self, func, types, inputs, kwargs):
         tensor_inputs = []
         for inp in inputs:
-            if isinstance(inp, Tensor):
+            if (
+                isinstance(inp, Tensor)
+                or not hasattr(inp, 'value')
+                and not isinstance(inp, np.ndarray)
+            ):
                 tensor_inputs.append(inp)
-            elif hasattr(inp, 'value') and not isinstance(inp, np.ndarray):
+            elif hasattr(inp, 'value'):
                 tensor_inputs.append(inp.value)
             else:
                 tensor_inputs.append(Tensor(inp))
         tensor_kwargs = {}
         for k, v in kwargs.items():
-            if isinstance(v, Tensor):
+            if (
+                isinstance(v, Tensor)
+                or not hasattr(v, 'value')
+                and not isinstance(v, np.ndarray)
+            ):
                 tensor_kwargs[k] = v
-            elif hasattr(v, 'value') and not isinstance(v, np.ndarray):
+            elif hasattr(v, 'value'):
                 tensor_kwargs[k] = v.value
             else:
                 tensor_kwargs[k] = Tensor(v)
-        # Extract raw NumPy arrays for the actual ufunc call:
         np_inputs = tuple(
             inp.data if hasattr(inp, 'data') else inp
             for inp in tensor_inputs
@@ -284,7 +295,6 @@ class Tensor:
             k: v.data if hasattr(v, 'data') else v
             for k, v in tensor_kwargs.items()
         }
-
         out = Tensor(func(*np_inputs, **np_kwargs))
 
         if tapes:

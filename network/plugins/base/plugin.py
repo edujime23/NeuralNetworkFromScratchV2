@@ -185,7 +185,7 @@ class Plugin(Generic[HostType, ContextType], ABC):
     # Lifecycle Methods
     def attach(self, host: HostType) -> None:
         """Called when plugin is attached to host."""
-        if self._host is not None:
+        if self._host.__class__ == host.__class__:
             raise PluginError(f"Plugin {self.name} is already attached")
 
         self._host = host
@@ -266,24 +266,23 @@ class Plugin(Generic[HostType, ContextType], ABC):
         if conflicts := set(self.config.conflicts) & available_plugins:
             raise PluginConflictError(f"Plugin {self.name} conflicts with: {conflicts}")
 
-    def _call_hook(self, hook_method: str, context: ContextType, *args, **kwargs):
+    def _call_hook(self, hook_method: str, context: ContextType):
         """Safely call a hook method with error handling and timeout."""
         if not self.enabled:
-            return args[0] if len(args) == 1 else args
+            return
 
         try:
             method = getattr(self, hook_method, None)
             if not method or not callable(method):
-                return args[0] if len(args) == 1 else args
+                return
 
-            # TODO: Add timeout handling here if needed
-            result = method(context, *args, **kwargs)
-            self._error_count = 0  # Reset on success
+            result = method(context=context)
+            self._error_count = 0
             return result
 
         except Exception as e:
             self._handle_error(hook_method, e)
-            return args[0] if len(args) == 1 else args
+            return
 
     def _handle_error(self, method_name: str, error: Exception) -> None:
         """Handle plugin errors with retry logic."""
@@ -392,6 +391,11 @@ class PluginHostMixin(Generic[ContextType]):
                 del self._plugins[plugin.name]
             raise e
 
+    def add_plugins(self, plugins: list[Plugin]) -> None:
+        """Add multiple plugins to the host."""
+        for plugin in plugins:
+            self.add_plugin(plugin)
+
     def remove_plugin(self, plugin_name: str) -> None:
         """Remove plugin by name."""
         if plugin_name not in self._plugins:
@@ -406,6 +410,11 @@ class PluginHostMixin(Generic[ContextType]):
         for group_plugins in self._plugin_groups.values():
             if plugin_name in group_plugins:
                 group_plugins.remove(plugin_name)
+
+    def remove_plugins(self, plugin_names: list[str]) -> None:
+        """Remove multiple plugins by name."""
+        for plugin_name in plugin_names:
+            self.remove_plugin(plugin_name)
 
     def get_plugin(self, plugin_name: str) -> Plugin:
         """Get plugin by name."""
@@ -499,9 +508,7 @@ class PluginHostMixin(Generic[ContextType]):
         return list(self._plugin_profiles.keys())
 
     # Hook System
-    def _call_hooks(
-        self, hook_point: PluginHookPoint, context: ContextType, *args, **kwargs
-    ):
+    def _call_hooks(self, hook_point: PluginHookPoint, context: ContextType) -> Any:
         """Call all registered hooks for a given hook point."""
         if self._hooks_dirty:
             self._rebuild_hook_cache()
@@ -512,22 +519,17 @@ class PluginHostMixin(Generic[ContextType]):
 
         # Get active plugins for this hook point
         plugins = self._hook_cache.get(hook_point, [])
-        if not plugins:
-            return args[0] if len(args) == 1 else args
 
         # Call hooks in priority order
-        result = args
+        result = None
         for plugin in plugins:
             if plugin.state != PluginState.ACTIVE:
                 continue
 
             hook_method = f"on_{hook_point.value}"
-            new_result = plugin._call_hook(hook_method, context, *result, **kwargs)
+            result = plugin._call_hook(hook_method=hook_method, context=context)
 
-            if new_result is not None:
-                result = new_result if isinstance(new_result, tuple) else (new_result,)
-
-        return result[0] if len(result) == 1 else result
+        return result
 
     def _rebuild_hook_cache(self) -> None:
         """Rebuild hook cache for optimal performance."""

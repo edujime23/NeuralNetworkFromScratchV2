@@ -6,8 +6,7 @@ from typing import Any, Self
 import numpy as np
 
 from network.gradient_tape.api import GradientTape
-from network.plugins.base.plugin import PluginContext
-from network.plugins.optimizer.base import OptimizerPluginMixin
+from network.plugins.optimizer.mixin import OptimizerPluginMixin
 from network.plugins.optimizer.hooks import OptimizerHookPoints
 from network.types.tensor import Tensor
 from network.types.variable import Variable
@@ -74,20 +73,6 @@ class Optimizer(ABC, OptimizerPluginMixin):
     def lr(self) -> float:
         return self._lr
 
-    def create_context(self, **kwargs) -> PluginContext:
-        """Create optimizer-specific plugin context."""
-        metadata = {
-            "step": self._iterations,
-            "lr": self._lr,
-            "built": self._built,
-            "variables": self._current_variables,
-            "loss_value": self._current_loss_value,
-            "gradients": self._last_gradients,
-            "slots": self._slots,
-            **kwargs,  # Allow additional context data
-        }
-        return PluginContext(host=self, metadata=metadata)
-
     def minimize(
         self,
         loss: Callable[[], Any],
@@ -95,27 +80,21 @@ class Optimizer(ABC, OptimizerPluginMixin):
         grad_loss: Tensor | None = None,
         tape: GradientTape | None = None,
     ) -> None:
-        """Minimize loss function with full plugin support."""
         self._current_variables = var_list
 
         # Pre-step hook
-        self._call_hooks(OptimizerHookPoints.PRE_STEP.value)
+        self.call_hooks(OptimizerHookPoints.PRE_STEP)
 
-        # Compute gradients
+        # Compute and apply
         grads_and_vars = self.compute_gradients(loss, var_list, grad_loss, tape)
-
-        # Apply gradients
         self.apply_gradients(grads_and_vars)
 
-        # Check convergence
-        convergence_result = self._call_hooks(
-            OptimizerHookPoints.ON_CONVERGENCE_CHECK.value
-        )
-        if convergence_result is True:
+        # Convergence check
+        if self.call_hooks(OptimizerHookPoints.ON_CONVERGENCE_CHECK) is True:
             self._logger.info("Convergence detected by plugin")
 
         # Post-step hook
-        self._call_hooks(OptimizerHookPoints.POST_STEP.value)
+        self.call_hooks(OptimizerHookPoints.POST_STEP)
 
     def compute_gradients(
         self,
@@ -124,23 +103,18 @@ class Optimizer(ABC, OptimizerPluginMixin):
         grad_loss: Tensor | None = None,
         tape: GradientTape | None = None,
     ) -> GradVarList:
-        """Compute gradients with plugin support."""
         self._current_variables = var_list
 
-        # Pre-compute hook - plugins can modify inputs through context
-        context = self.create_context(
-            loss=loss, var_list=var_list, grad_loss=grad_loss, tape=tape
-        )
-        result = self._call_hooks(
-            OptimizerHookPoints.PRE_COMPUTE_GRADIENTS.value, context
+        # Pre-compute hook
+        self.call_hooks(
+            OptimizerHookPoints.PRE_COMPUTE_GRADIENTS,
+            loss=loss,
+            var_list=var_list,
+            grad_loss=grad_loss,
+            tape=tape,
         )
 
-        # Extract modified values from context if plugins changed them
-        if isinstance(result, PluginContext):
-            loss = result.metadata.get("loss", loss)
-            var_list = result.metadata.get("var_list", var_list)
-            grad_loss = result.metadata.get("grad_loss", grad_loss)
-            tape = result.metadata.get("tape", tape)
+        # Unpack possible modifications
 
         own_tape = tape is None
         if own_tape:
@@ -148,124 +122,97 @@ class Optimizer(ABC, OptimizerPluginMixin):
 
         if own_tape:
             with tape:
-                loss_value = loss()
-                self._current_loss_value = loss_value
+                self._current_loss_value = loss()
         else:
-            loss_value = loss()
-            self._current_loss_value = loss_value
+            self._current_loss_value = loss()
 
-        grads = tape.gradient(loss_value, var_list, grad_loss)
+        grads = tape.gradient(self._current_loss_value, var_list, grad_loss)
         self._last_gradients = grads
         grads_and_vars = list(zip(grads, var_list))
 
         # Post-compute hook
-        context = self.create_context(grads_and_vars=grads_and_vars, gradients=grads)
-        result = self._call_hooks(
-            OptimizerHookPoints.POST_COMPUTE_GRADIENTS.value, context
+        self.call_hooks(
+            OptimizerHookPoints.POST_COMPUTE_GRADIENTS,
+            grads_and_vars=grads_and_vars,
+            gradients=grads,
         )
-
-        # Extract modified grads_and_vars if plugins changed them
-        if isinstance(result, PluginContext):
-            grads_and_vars = result.metadata.get("grads_and_vars", grads_and_vars)
 
         return grads_and_vars
 
     def apply_gradients(self, grads_and_vars: GradVarList) -> None:
-        """Apply gradients with comprehensive plugin support."""
         # Pre-apply hook
-        context = self.create_context(grads_and_vars=grads_and_vars)
-        result = self._call_hooks(
-            OptimizerHookPoints.PRE_APPLY_GRADIENTS.value, context
+        self.call_hooks(
+            OptimizerHookPoints.PRE_APPLY_GRADIENTS, grads_and_vars=grads_and_vars
         )
 
-        if isinstance(result, PluginContext):
-            grads_and_vars = result.metadata.get("grads_and_vars", grads_and_vars)
-
-        # Build optimizer if needed
         if not self._built:
             self._lazy_build(grads_and_vars)
 
-        # Apply updates to each variable
         for grad, var in grads_and_vars:
             if grad is None or not var.trainable:
                 continue
 
-            # Get optimizer slots
-            slots = {
-                slot_name: self.get_slot(var, slot_name) for slot_name in self._slots
-            }
+            slots = {name: self.get_slot(var, name) for name in self._slots}
 
-            # Pre-update step hook
-            context = self.create_context(gradient=grad, variable=var, slots=slots)
-            result = self._call_hooks(
-                OptimizerHookPoints.PRE_UPDATE_STEP.value, context
+            # Pre-update
+            self.call_hooks(
+                OptimizerHookPoints.PRE_UPDATE_STEP,
+                gradient=grad,
+                variable=var,
+                slots=slots,
             )
 
-            if isinstance(result, PluginContext):
-                grad = result.metadata.get("gradient", grad)
-                var = result.metadata.get("variable", var)
-
-            # Compute update
             update = self.update_step(grad, var, slots)
 
-            # Pre-apply update hook
-            context = self.create_context(update=update, variable=var)
-            result = self._call_hooks(
-                OptimizerHookPoints.PRE_APPLY_UPDATE.value, context
+            # Pre-apply update
+            self.call_hooks(
+                OptimizerHookPoints.PRE_APPLY_UPDATE, update=update, variable=var
             )
 
-            if isinstance(result, PluginContext):
-                update = result.metadata.get("update", update)
-                var = result.metadata.get("variable", var)
+            # Post-update
+            self.call_hooks(
+                OptimizerHookPoints.POST_UPDATE_STEP,
+                gradient=grad,
+                variable=var,
+                update=update,
+            )
 
-            # Post-update step hook
-            context = self.create_context(gradient=grad, variable=var, update=update)
-            self._call_hooks(OptimizerHookPoints.POST_UPDATE_STEP.value, context)
-
-            # Ensure dtype consistency
             original_dtype = var.value.dtype
             if update.dtype != original_dtype:
-                if np.iscomplexobj(update) and not np.iscomplexobj(var.value):
-                    update = update.real.astype(original_dtype)
-                else:
-                    update = update.astype(original_dtype)
+                update = self._cast_update(update, original_dtype)
 
-            # Apply update
             var.assign_sub(update)
 
         self._iterations += 1
 
-        # Post-apply gradients hook
-        context = self.create_context(grads_and_vars=grads_and_vars)
-        self._call_hooks(OptimizerHookPoints.POST_APPLY_GRADIENTS.value, context)
+        # Post-apply gradients
+        self.call_hooks(
+            OptimizerHookPoints.POST_APPLY_GRADIENTS, grads_and_vars=grads_and_vars
+        )
 
     def _lazy_build(self, grads_and_vars: GradVarList) -> None:
-        """Build optimizer with plugin support."""
         var_list = [v for _, v in grads_and_vars]
         dtypes = [v.dtype for v in var_list]
 
-        # Pre-build hook
-        context = self.create_context(
-            var_list=var_list, dtypes=dtypes, slots=self._slots
+        # Pre-build
+        self.call_hooks(
+            OptimizerHookPoints.PRE_BUILD,
+            var_list=var_list,
+            dtypes=dtypes,
+            slots=self._slots,
         )
-        result = self._call_hooks(OptimizerHookPoints.PRE_BUILD.value, context)
-
-        if isinstance(result, PluginContext):
-            var_list = result.metadata.get("var_list", var_list)
-            dtypes = result.metadata.get("dtypes", dtypes)
-            self._slots = result.metadata.get("slots", self._slots)
 
         self.build(var_list, dtypes=dtypes)
         self._built = True
 
-        # Post-build hook
-        context = self.create_context(var_list=var_list, slots=self._slots)
-        self._call_hooks(OptimizerHookPoints.POST_BUILD.value, context)
+        # Post-build
+        self.call_hooks(
+            OptimizerHookPoints.POST_BUILD, var_list=var_list, slots=self._slots
+        )
 
-        # Notify plugins about new variables
+        # Notify variable creation
         for var in var_list:
-            context = self.create_context(variable=var)
-            self._call_hooks(OptimizerHookPoints.ON_VARIABLE_CREATED.value, context)
+            self.call_hooks(OptimizerHookPoints.ON_VARIABLE_CREATED, variable=var)
 
     @abstractmethod
     def build(

@@ -51,8 +51,6 @@ def _arctan_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient
 def _arctan2_grad(
     upstream: Gradient, result: Tensor, y: Tensor, x: Tensor
 ) -> list[Gradient]:
-    # Hint: arctan2 is a real-valued function, NumPy's implementation expects real inputs.
-    # Gradients propagate through real parts of inputs if Tensor abstraction handles this.
     denom = x**2 + y**2
 
     grad_y_h = upstream.h * (x / denom)
@@ -71,7 +69,6 @@ def _arctan2_grad(
 def _hypot_grad(
     upstream: Gradient, result: Tensor, x1: Tensor, x2: Tensor
 ) -> list[Gradient]:
-    # Hint: hypot is a real-valued function, NumPy's implementation expects real inputs.
     grad_x1_h = upstream.h * (x1 / result)
     grad_x1_ah = upstream.ah * (x1 / result)
 

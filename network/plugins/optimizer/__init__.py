@@ -1,4 +1,4 @@
-from .base import OptimizerPluginMixin
+from .mixin import OptimizerPluginMixin
 from .clipping import (
     AdaptiveGradientClippingPlugin,
     AdaptivePercentileClippingPlugin,
@@ -9,6 +9,8 @@ from .hooks import (
     OptimizerHookPoints,
 )
 
+from .look_ahead import LookaheadPlugin
+
 __all__ = [
     "OptimizerHookPoints",
     "OptimizerHookPoint",
@@ -16,4 +18,5 @@ __all__ = [
     "AdaptiveGradientClippingPlugin",
     "AdaptivePercentileClippingPlugin",
     "StochasticGradientClippingPlugin",
+    "LookaheadPlugin",
 ]

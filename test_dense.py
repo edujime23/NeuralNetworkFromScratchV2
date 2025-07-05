@@ -3,21 +3,23 @@ import numpy as np
 from network.gradient_tape import GradientTape
 from network.layers import Dense
 from network.optimizers.adam import Adam
+from network.plugins.optimizer import StochasticGradientClippingPlugin, LookaheadPlugin
 from network.types.tensor import Tensor
 
 
 def relu(x):
-    return np.max(x, 0)
+    return np.maximum(x, 0)
 
 
 np.random.seed(0)
-dense = Dense(units=1, activation=lambda x: x, name="linear")
+dense = Dense(units=32, activation=relu, name="linear", dtype=None)
 
-# Create a toy dataset: y = 3x + 2
-X = Tensor(np.random.randn(1, 2).astype(np.float32))
-Y = X + 1
+X = Tensor(np.arange(0, 5), dtype=None).reshape(-1, 1)
+Y = 2 * X + 1
 
 optimizer = Adam(lr=1e-3)
+
+optimizer.add_plugins([StochasticGradientClippingPlugin(), LookaheadPlugin()])
 
 dense(X, training=True)
 
@@ -41,7 +43,7 @@ for step in range(int(epochs)):
     if step % 1000 == 0:
         print(f"grad_k: {grad_k} grad_b: {grad_b}")
         print(
-            f"Step {step}: loss={loss}, w={dense.kernel.value.squeeze()}, b={dense.bias.value}"
+            f"Step {step}: loss={loss}, w={dense.kernel.value.squeeze()}, b={dense.bias.value.squeeze()}"
         )
 
 print("Final w:", dense.kernel.value)

@@ -48,12 +48,11 @@ class GradientTapeCore:
                 break
 
         normalized_kwargs_tensors = []
-        for _, v in kwargs.items():
-            if isinstance(v, (Tensor, Variable)):
-                normalized_kwargs_tensors.append(
-                    v.value if isinstance(v, Variable) else v
-                )
-
+        normalized_kwargs_tensors.extend(
+            v.value if isinstance(v, Variable) else v
+            for v in kwargs.values()
+            if isinstance(v, (Tensor, Variable))
+        )
         for kwarg_tensor in normalized_kwargs_tensors:
             if id(kwarg_tensor) in tape._watched or id(kwarg_tensor) in tape._nodes:
                 should_record = True

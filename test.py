@@ -1,37 +1,54 @@
 import numpy as np
 
-from network.layers import Dense
+from network.layers import Dense, Input
 from network.models import Sequential
-
-# Seed for reproducibility
-np.random.seed(0)
-
-# Toy dataset: y = 3x + 2 + noise
-X = np.random.randn(100, 1).astype(np.float32)
-Y = 3 * X + 2 + 0.1 * np.random.randn(100, 1).astype(np.float32)
+from network.optimizers.adam import Adam
+from network.plugins.optimizer.clipping import StochasticGradientClippingPlugin
+from network.plugins.optimizer.look_ahead import LookaheadPlugin
+from network.plugins.model.lr import AdaptiveLRPlugin
 
 
-# Define loss function
 def mse(y_true, y_pred):
-    return ((y_true - y_pred) ** 2).mean()
+    return np.mean((y_true - y_pred) ** 2)
 
 
-# Build the model
-model = Sequential(
-    [Dense(units=1, activation=None, name="linear")], name="linear_model"
-)
+def func(x):
+    return x**0.123
 
-# Compile the model
-model.compile(optimizer="adam", loss=mse, metrics=["mse"])
 
-# Train the model
-model.fit(x=X, y=Y, epochs=50, batch_size=16)
+n = 300
+X = np.linspace(0, 5, n).reshape(-1, 1)
+Y = func(X).reshape(-1, 1)
 
-# Summary
+layers = [
+    Input(input_shape=(1,)),
+    Dense(units=256, activation=np.tanh, name="l-0"),
+    Dense(units=128, activation=np.tanh, name="l-1"),
+    Dense(units=64, activation=np.tanh, name="l-2"),
+    Dense(units=32, activation=np.tanh, name="l-3"),
+    Dense(units=16, activation=np.tanh, name="l-4"),
+    Dense(units=8, activation=np.tanh, name="l-5"),
+    Dense(units=4, activation=np.tanh, name="l-6"),
+    Dense(units=2, activation=np.tanh, name="l-7"),
+    Dense(units=1, activation=None, name="l-8"),
+]
+
+model = Sequential(layers, name="f_approx_model")
+
+optimizer = Adam(lr=1e-3)
+
+optimizer.add_plugins([LookaheadPlugin(), StochasticGradientClippingPlugin()])
+
+model.add_plugins([AdaptiveLRPlugin(256)])
+
+model.compile(optimizer=optimizer, loss=mse, metrics=["mse"])
+
+EPOCHS = 1000
+BATCH_SIZE = X.shape[0]
+
+print(f"Starting training for {EPOCHS} epochs...")
+model.fit(x=X, y=Y, epochs=EPOCHS, batch_size=BATCH_SIZE)
+
+print("\nTraining complete.")
+
 model.summary()
-
-# Predict
-predictions = model(X)
-print("\nSample predictions:\n", predictions[:5])
-
-#Commit de TigerWavvee full hd 4k free VBucks 2025 HOW TO

@@ -6,6 +6,8 @@ from . import (
     scipy_special,
     trigonometric,
     util,
+    linealg,
+    reduction,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "scipy_special",
     "trigonometric",
     "util",
+    "linealg",
+    "reduction",
 ]

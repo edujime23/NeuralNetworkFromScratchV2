@@ -6,27 +6,17 @@ from network.types.tensor import Tensor
 
 
 @registry.register("fabs")
-def _fabs_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    # Hint: Absolute value function. Gradient undefined at zero.
-    a_abs = np.abs(a)
-    grad_a_h = np.where(a_abs != 0, upstream.h * (np.conj(a) / (2 * a_abs)), 0.0)
-    grad_a_ah = np.where(a_abs != 0, upstream.ah * (a / (2 * a_abs)), 0.0)
-    return [Gradient(h=grad_a_h, ah=grad_a_ah)]
-
-
 @registry.register("abs")
-def _abs_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    return _fabs_grad(upstream, result, a)
-
-
 @registry.register("absolute")
-def _absolute_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    return _fabs_grad(upstream, result, a)
+def _fabs_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
+    a_abs = np.abs(a)
+    grad_a_h = np.where(a_abs != 0, upstream.h * (np.conj(a) / (2 * a_abs + 1e-8)), 0.0)
+    grad_a_ah = np.where(a_abs != 0, upstream.ah * (a / (2 * a_abs + 1e-8)), 0.0)
+    return [Gradient(h=grad_a_h, ah=grad_a_ah)]
 
 
 @registry.register("sqrt")
 def _sqrt_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    # Hint: Gradient undefined at zero.
     grad_a_h = np.where(result != 0, upstream.h * (0.5 / result), 0.0)
     grad_a_ah = np.where(
         np.conj(result) != 0, upstream.ah * (0.5 / np.conj(result)), 0.0
@@ -36,7 +26,6 @@ def _sqrt_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
 
 @registry.register("cbrt")
 def _cbrt_grad(upstream: Gradient, result: Tensor, a: Tensor) -> list[Gradient]:
-    # Hint: Gradient undefined at zero.
     grad_a_h = np.where(a != 0, upstream.h * (1 / 3) * (a ** (-2 / 3)), 0.0)
     grad_a_ah = np.where(
         np.conj(a) != 0, upstream.ah * (1 / 3) * (np.conj(a) ** (-2 / 3)), 0.0

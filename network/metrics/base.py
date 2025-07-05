@@ -81,8 +81,8 @@ class MeanSquaredError(Metric):
         Accumulate sum of squared errors and sample count.
         """
         # Convert to NumPy for accumulation
-        y_true_arr = y_true.numpy()
-        y_pred_arr = y_pred.numpy()
+        y_true_arr = y_true.numpy
+        y_pred_arr = y_pred.numpy
 
         # Compute batch squared error
         err = y_true_arr - y_pred_arr
@@ -124,8 +124,8 @@ class MeanAbsoluteError(Metric):
         self.reset_states()
 
     def update_state(self, y_true: Tensor, y_pred: Tensor) -> None:
-        y_true_arr = y_true.numpy()
-        y_pred_arr = y_pred.numpy()
+        y_true_arr = y_true.numpy
+        y_pred_arr = y_pred.numpy
 
         err = np.abs(y_true_arr - y_pred_arr)
         batch_sum = float(np.sum(err))

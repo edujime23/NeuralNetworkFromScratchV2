@@ -4,23 +4,20 @@ from network.gradient_tape import GradientTape
 from network.types import Tensor, Variable
 
 x = Variable([1.0, 2.0, 3.0], dtype=np.float64)
-y = Variable([1 + 1j, 2 + 2j, 3 + 3j], dtype=np.complex128)
-z = Tensor([1 + 1j, 2 + 2j, 3 + 3j], dtype=np.complex128)
+y = Variable([1 + 3j, 2 + 1j, 3 + 2j], dtype=np.complex128)
+z = Tensor([1 + 2j, 2 + 3j, 3 + 1j], dtype=np.complex128)
 
 
 def func(u):
-    return np.mean(np.abs(u**2))
+    return np.abs(u) ** 2
 
 
 with GradientTape() as tape:
     tape.watch(x, y, z)
     r = func(x) + func(y) + func(z)
-    # print("Recorded ops:")
-    # for node in tape._nodes_in_order:
-    #     print("   func is:", node.func, "   name:", node.func.__name__, "   result:", node.result, "   inputs:", node.inputs)
 
 dx, dy, dz = tape.gradient(r, [x, y, z])
 print(r)
-print("∂r/∂x =", dx)
+print("∂r/∂x =", dx.total)
 print("∂r/∂y =", dy)
 print("∂r/∂z =", dz)

@@ -1,5 +1,4 @@
 from . import (
-    callbacks,
     functions,
     gradient_tape,
     initializers,
@@ -12,7 +11,6 @@ from . import (
 
 __all__ = [
     "functions",
-    "callbacks",
     "initializers",
     "layers",
     "losses",
