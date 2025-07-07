@@ -7,7 +7,7 @@ from network.types.tensor import Tensor
 
 
 # Internal-facing types. Users defining gradients won't need these.
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class OpNode:
     """
     Internal: Represents a recorded operation in the computation graph.
@@ -70,7 +70,7 @@ class OpNode:
         del current_key_value, arg_n_inp
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Gradient:
     """
     Internal: Stores holomorphic and anti-holomorphic gradient components.

@@ -11,7 +11,7 @@ from network.types.tensor import Tensor
 class GradientFunction(Protocol):
     def __call__(
         self, grad: Gradient, tensor: Tensor, *args, **kwargs
-    ) -> tuple[Tensor, Tensor]: ...
+    ) -> list[Gradient]: ...
 
 
 class GradientRegistry:
@@ -20,7 +20,7 @@ class GradientRegistry:
     def __init__(self):
         self._registry: dict[str, GradientFunction] = {}
 
-    def register(self, op_name: str) -> GradientFunction:
+    def register(self, op_name: str):
         """
         Returns a decorator to register a gradient function for an operation.
 
