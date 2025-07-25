@@ -1,7 +1,7 @@
 import numpy as np
 
-from network.gradient_tape.core.registry import registry
-from network.gradient_tape.types import Gradient
+from network.tape.gradient.core.registry import registry
+from network.tape.gradient.types import Gradient
 from network.types.tensor import Tensor
 
 

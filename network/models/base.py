@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from network.gradient_tape.api import GradientTape
+from network.tape.gradient.api import GradientTape
 from network.layers.base import Layer
 from network.metrics.base import Metric
 from network.plugins.model.mixin import ModelPluginMixin

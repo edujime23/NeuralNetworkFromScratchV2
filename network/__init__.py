@@ -1,6 +1,6 @@
 from . import (
     functions,
-    gradient_tape,
+    tape,
     initializers,
     layers,
     losses,
@@ -17,5 +17,5 @@ __all__ = [
     "metrics",
     "optimizers",
     "models",
-    "gradient_tape",
+    "tape",
 ]

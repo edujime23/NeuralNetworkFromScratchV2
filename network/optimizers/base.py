@@ -5,7 +5,7 @@ from typing import Any, Self
 
 import numpy as np
 
-from network.gradient_tape.api import GradientTape
+from network.tape.gradient.api import GradientTape
 from network.plugins.optimizer.mixin import OptimizerPluginMixin
 from network.plugins.optimizer.hooks import OptimizerHookPoints
 from network.types.tensor import Tensor

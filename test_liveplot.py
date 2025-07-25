@@ -7,6 +7,7 @@ from network.plugins.model.plotting import LivePlotPlugin
 from network.plugins.optimizer.clipping import StochasticGradientClippingPlugin
 from network.plugins.optimizer.look_ahead import LookaheadPlugin
 from network.plugins.model.lr import AdaptiveLRPlugin
+from network.functions.activation import bent_identity, tanh, leaky_relu, softmax, relu, sigmoid, swish, elu, gelu, mish
 
 
 def mse(y_true, y_pred):
@@ -14,7 +15,8 @@ def mse(y_true, y_pred):
 
 
 def func(x):
-    return x ** np.exp(-x)
+    return np.exp2(-x)
+    return np.tan(x**7 * np.abs(x)**np.abs(x))
 
 
 n = 300
@@ -23,23 +25,19 @@ Y = func(X).reshape(-1, 1)
 
 layers = [
     Input(input_shape=(1,)),
-    Dense(units=256, activation=np.tanh, name="l-0"),
-    Dense(units=128, activation=np.tanh, name="l-1"),
-    Dense(units=64, activation=np.tanh, name="l-2"),
-    Dense(units=32, activation=np.tanh, name="l-3"),
-    Dense(units=16, activation=np.tanh, name="l-4"),
-    Dense(units=8, activation=np.tanh, name="l-5"),
-    Dense(units=4, activation=None, name="l-6"),
-    Dense(units=1, activation=None, name="l-7"),
+    Dense(units=64, activation=softmax),
+    Dense(units=64, activation=bent_identity),
+    Dense(units=32, activation=elu),
+    Dense(units=1, activation=None),
 ]
 
 model = Sequential(layers, name="f_approx_model")
 
-optimizer = Adam(lr=1e-3)
+optimizer = Adam(lr=1e-2)
 
 optimizer.add_plugins([LookaheadPlugin(), StochasticGradientClippingPlugin()])
 
-model.add_plugins([AdaptiveLRPlugin(256), LivePlotPlugin(metrics=["mse"])])
+model.add_plugins([AdaptiveLRPlugin(1024), LivePlotPlugin(metrics=["mse"], max_points=np.inf)])
 
 model.compile(optimizer=optimizer, loss=mse, metrics=["mse"])
 

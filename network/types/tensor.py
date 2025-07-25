@@ -125,6 +125,8 @@ class Tensor:
             "warnings.py",
             "<frozen ",
             "__pycache__",
+            'tensor',
+            'variable'
         )
 
         while frame:
@@ -539,3 +541,6 @@ class Tensor:
         else:
             for idx in range(self._shape[0]):
                 yield Tensor(self.data[idx], dtype=self._dtype, name=None)
+
+    def __hash__(self):
+        return id(self)
