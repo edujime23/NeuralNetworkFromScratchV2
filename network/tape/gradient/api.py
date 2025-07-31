@@ -27,7 +27,7 @@ class GradientTape(GradientTapeCore):
     def gradient(
         self,
         target: Tensor,
-        sources: list[Tensor | Variable],  # Allow both Tensor and Variable
+        sources: list[Tensor | Variable],
         output_gradients: Gradient | None = None,
     ) -> list[Gradient | None]:
         """
@@ -39,17 +39,14 @@ class GradientTape(GradientTapeCore):
         if isinstance(sources, (Tensor, Variable)):
             sources = [sources]
 
-        self._backpropagate(target, output_gradients)
+        # Convert Variables to Tensors
+        source_tensors = [s.value if isinstance(s, Variable) else s for s in sources]
 
-        results: list[Gradient | None] = []
-        for s in sources:
-            source_tensor = s.value if isinstance(s, Variable) else s
-            if grad_pair := self._grads.get(id(source_tensor)):
-                results.append(grad_pair)
-            else:
-                results.append(None)
+        # Call the parent's gradient method which handles real variables properly
+        gradients = super().gradient(target, source_tensors)
 
         # Clear state only if not persistent and not inside a `with` block
         if not self.persistent and not tapes:
             self._clear_state()
-        return results
+
+        return gradients

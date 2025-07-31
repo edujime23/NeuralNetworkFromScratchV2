@@ -36,8 +36,8 @@ class Tensor:
         self.__data.setflags(write=False)
 
         self._name = name
-        self._dtype = self.__data.dtype
-        self._shape = self.__data.shape
+        self._dtype = dtype or self.__data.dtype
+        self._shape = shape or self.__data.shape
 
     @property
     def name(self) -> str | None:

@@ -14,11 +14,11 @@ class TapeCore(ABC):
         self._is_used: bool = False
 
     def _watch(self, *tensors: Tensor):
-        """Internal watch method."""
-        if isinstance(tensors, Tensor):
-            tensors = (tensors,)
-        for t in tensors:
-            self._watched.add(id(t))
+        """Internal watch method that properly handles multiple tensor arguments."""
+        for tensor in tensors:
+            if not isinstance(tensor, Tensor):
+                raise TypeError(f"Can only watch Tensor objects, got {type(tensor)}")
+            self._watched.add(id(tensor))
 
     def _record_operation(
         self, op_name: str, inputs: tuple, kwargs: dict, result: Tensor
@@ -67,16 +67,21 @@ class TapeCore(ABC):
 
     def _topological_sort(self, target: Tensor) -> list[OpNode]:
         """Returns a topologically sorted list of nodes for a target Tensor."""
-        sorted_nodes, visited = [], set()
+        if id(target) not in self._nodes:
+            return []
+
+        sorted_nodes = []
+        visited = set()
 
         def visit(node: OpNode):
-            if id(node) in visited:
+            node_id = id(node.result)
+            if node_id in visited:
                 return
-            visited.add(id(node))
+            visited.add(node_id)
+
             for parent in node.parents:
                 visit(parent)
             sorted_nodes.append(node)
 
-        if id(target) in self._nodes:
-            visit(self._nodes[id(target)])
+        visit(self._nodes[id(target)])
         return sorted_nodes

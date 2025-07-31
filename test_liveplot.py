@@ -15,7 +15,7 @@ def mse(y_true, y_pred):
 
 
 def func(x):
-    return np.exp2(-x)
+    return np.exp2(-x**5)
     return np.tan(x**7 * np.abs(x)**np.abs(x))
 
 
@@ -25,6 +25,7 @@ Y = func(X).reshape(-1, 1)
 
 layers = [
     Input(input_shape=(1,)),
+    Dense(units=64, activation=tanh),
     Dense(units=64, activation=softmax),
     Dense(units=64, activation=bent_identity),
     Dense(units=32, activation=elu),
@@ -37,7 +38,7 @@ optimizer = Adam(lr=1e-2)
 
 optimizer.add_plugins([LookaheadPlugin(), StochasticGradientClippingPlugin()])
 
-model.add_plugins([AdaptiveLRPlugin(1024), LivePlotPlugin(metrics=["mse"], max_points=np.inf)])
+model.add_plugins([AdaptiveLRPlugin(1024), LivePlotPlugin(metrics=["mse"], max_points=512)])
 
 model.compile(optimizer=optimizer, loss=mse, metrics=["mse"])
 

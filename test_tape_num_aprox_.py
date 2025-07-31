@@ -1,6 +1,6 @@
 import numpy as np
 
-from network.gradient_tape import GradientTape
+from network.tape import GradientTape
 from network.types import Variable
 
 x = Variable([1.0, 2.0, 3.0], dtype=np.float64)
@@ -15,7 +15,7 @@ def func(u):
 
 with GradientTape() as tape:
     tape.watch(x, y)
-    z = func(y)
+    z = func(x) + func(y)
 
 dx, dy = tape.gradient(z, [x, y])
 print("∂z/∂x =", dx)
